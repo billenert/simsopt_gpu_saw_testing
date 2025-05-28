@@ -12,6 +12,7 @@ using std::vector;
 namespace py = pybind11;
 
 #define PARTICLES_PER_BLOCK 128
+#define MAX_STEPS 10000 // CHANGE: maximum number of steps we record in the buffer
 
 // Particle Data Structure
 typedef struct particle_t {
@@ -31,10 +32,6 @@ typedef struct particle_t {
     bool symmetry_exploited;
     int id;
     int step_attempt, step_accept;
-    double* trajectory_states;
-    double* trajectory_times;
-    int trajectory_size;
-    int max_trajectory_size;
 } particle_t;
 
 
@@ -505,24 +502,12 @@ __host__ __device__ void adjust_time(particle_t& p, double tmax){
 
 }
 __host__ __device__    void trace_particle(particle_t& p, double* srange_arr, double* trange_arr, double* zrange_arr, double* quadpts_arr,
-                         double tmax, double m, double q, double psi0, double* saw_srange_arr, int* saw_m_arr, int* saw_n_arr, double* saw_phihats_arr, double saw_omega, int saw_nharmonics){
+                         double tmax, double m, double q, double psi0, double* saw_srange_arr, int* saw_m_arr, int* saw_n_arr, double* saw_phihats_arr, double saw_omega, int saw_nharmonics, int idx, double* traj_buffer){
 
     setup_particle(p, srange_arr, trange_arr, zrange_arr, quadpts_arr, tmax, m, q, psi0, saw_srange_arr, saw_m_arr, saw_n_arr, saw_phihats_arr, saw_omega, saw_nharmonics);
 
-    p.trajectory_size = 0;
-    p.max_trajectory_size = 10000;
-    p.trajectory_states = new double[4 * p.max_trajectory_size];
-    p.trajectory_times = new double[p.max_trajectory_size];
-
-    // Save initial state
-    for(int i = 0; i < 4; i++) {
-        p.trajectory_states[p.trajectory_size * 4 + i] = p.state[i];
-    }
-    p.trajectory_times[p.trajectory_size] = p.t;
-    p.trajectory_size++;
-
     int counter = 0;
-
+    int prev_step_accept = p.step_accept;
     while(p.t < tmax){
         // if(counter % 1000){
         //     printf("particle %d position %.15e, %.15e, %.15e, %.15e, %.15e, dt=%.15e\n", p.id, p.t, p.state[0], p.state[1], p.state[2], p.state[3], p.dt);
@@ -533,12 +518,21 @@ __host__ __device__    void trace_particle(particle_t& p, double* srange_arr, do
         }
         adjust_time(p, tmax);
         
-        if(p.trajectory_size < p.max_trajectory_size) {
-            for(int i = 0; i < 4; i++) {
-                p.trajectory_states[p.trajectory_size * 4 + i] = p.state[i];
-            }
-            p.trajectory_times[p.trajectory_size] = p.t;
-            p.trajectory_size++;
+        // if the step_accept has increased, that means we can record this trajectory point
+        if(p.step_accept > prev_step_accept) {
+            prev_step_accept = p.step_accept;
+            double y1 = p.state[0], y2 = p.state[1];
+            double s = sqrt(y1*y1 + y2*y2);
+            double theta = atan2(y2, y1);
+            double z = p.state[2];
+            double vpar = p.state[3];
+            double tnow = p.t;
+            int base = (idx * max_steps + step) * 5;
+            traj_buffer[base + 0] = s;
+            traj_buffer[base + 1] = theta;
+            traj_buffer[base + 2] = z;
+            traj_buffer[base + 3] = vpar;
+            traj_buffer[base + 4] = tnow;
         }
 
         double s = sqrt(p.state[0]*p.state[0] + p.state[1]*p.state[1]);
@@ -557,11 +551,12 @@ __host__ __device__    void trace_particle(particle_t& p, double* srange_arr, do
 }
 
 __global__ void particle_trace_kernel(particle_t* particles, double* srange_arr, double* trange_arr, double* zrange_arr, double* quadpts_arr,
-                        double tmax, double m, double q, double psi0, int nparticles, double* saw_srange_arr, int* saw_m_arr, int* saw_n_arr, double* saw_phihats_arr, double saw_omega, int saw_nharmonics){
+                        double tmax, double m, double q, double psi0, int nparticles, double* saw_srange_arr, int* saw_m_arr, int* saw_n_arr, double* saw_phihats_arr, double saw_omega, int saw_nharmonics, double* traj_buffer){
+    // added traj buffer
     int idx = threadIdx.x + blockIdx.x*blockDim.x;
     if(idx < nparticles){
         // printf("tracing particle %d\n", idx);
-        trace_particle(particles[idx], srange_arr, trange_arr, zrange_arr, quadpts_arr, tmax, m, q, psi0, saw_srange_arr, saw_m_arr, saw_n_arr, saw_phihats_arr, saw_omega, saw_nharmonics);
+        trace_particle(particles[idx], srange_arr, trange_arr, zrange_arr, quadpts_arr, tmax, m, q, psi0, saw_srange_arr, saw_m_arr, saw_n_arr, saw_phihats_arr, saw_omega, saw_nharmonics, idx, traj_buffer);
     }
 }
 
@@ -684,78 +679,53 @@ extern "C" vector<double> gpu_tracing_saw(py::array_t<double> quad_pts, py::arra
     cudaEventCreate(&start);
     cudaEventCreate(&stop);
     cudaEventRecord(start);
-    particle_trace_kernel<<<nblks, nthreads>>>(particles_d, srange_d, trange_d, zrange_d, quadpts_d, tmax, m, q, psi0, nparticles, saw_srange_d, saw_m_d, saw_n_d, saw_phihats_d, saw_omega, saw_nharmonics);
 
-    cudaMemcpy(particles, particles_d, nparticles * sizeof(particle_t), cudaMemcpyDeviceToHost);
+    double* traj_d;
+    size_t traj_size = (size_t) nparticles * MAX_STEPS * 5 * sizeof(double);
+    cudaMalloc(&traj_d, traj_size);
+    cudaMemset(traj_d, 0xFF, traj_size);
 
+    particle_trace_kernel<<<nblks, nthreads>>>(particles_d, srange_d, trange_d, zrange_d, quadpts_d, tmax, m, q, psi0, nparticles, saw_srange_d, saw_m_d, saw_n_d, saw_phihats_d, saw_omega, saw_nharmonics, traj_d);
+
+    // cudaMemcpy(particles, particles_d, nparticles * sizeof(particle_t), cudaMemcpyDeviceToHost);
+
+    cudaError_t err = cudaGetLastError();
+    cudaDeviceSynchronize();
     cudaEventRecord(stop);
     cudaEventSynchronize(stop);
     float milliseconds = 0;
     cudaEventElapsedTime(&milliseconds, start, stop);
     std::cout << "tracing kernels time (ms): " << milliseconds<< "\n";
     
-    int total_trajectory_points = 0;
-    for(int i = 0; i < nparticles; i++) {
-        total_trajectory_points += particles[i].trajectory_size;
-    }
-
-    // Create output vector with space for final states and trajectories
-    vector<double> particle_output(7*nparticles + 5*total_trajectory_points);
-    
-    int output_idx = 0;
-
     // vector<double> particle_output(7*nparticles);
-    for(int i=0; i<nparticles; ++i){
-        double y1 = particles[i].state[0];
-        double y2 = particles[i].state[1];
-        double z = particles[i].state[2];
-        double v_par = particles[i].state[3];
+    // for(int i=0; i<nparticles; ++i){
+    //     double y1 = particles[i].state[0];
+    //     double y2 = particles[i].state[1];
+    //     double z = particles[i].state[2];
+    //     double v_par = particles[i].state[3];
 
-        // last location in Boozer coordinates
-        // particle_output[7*i] = sqrt(y1*y1 + y2*y2);
-        // particle_output[7*i + 1] = atan2(y2, y1);
-        // particle_output[7*i + 2] = z;
-        // particle_output[7*i + 3] = v_par;
-        // particle_output[7*i + 4] = particles[i].t;
-        // particle_output[7*i + 5] = particles[i].step_accept;
-        // particle_output[7*i + 6] = particles[i].step_attempt;
-        particle_output[output_idx++] = sqrt(y1*y1 + y2*y2);
-        particle_output[output_idx++] = atan2(y2, y1);
-        particle_output[output_idx++] = z;
-        particle_output[output_idx++] = v_par;
-        particle_output[output_idx++] = particles[i].t;
-        particle_output[output_idx++] = particles[i].step_accept;
-        particle_output[output_idx++] = particles[i].step_attempt;
-    }
+    //     // last location in Boozer coordinates
+    //     particle_output[7*i] = sqrt(y1*y1 + y2*y2);
+    //     particle_output[7*i + 1] = atan2(y2, y1);
+    //     particle_output[7*i + 2] = z;
+    //     particle_output[7*i + 3] = v_par;
+    //     particle_output[7*i + 4] = particles[i].t;
+    //     particle_output[7*i + 5] = particles[i].step_accept;
+    //     particle_output[7*i + 6] = particles[i].step_attempt;
+    // }
 
-    // store trajectories
-    for(int i=0; i<nparticles; ++i){
-        for(int j=0; j<particles[i].trajectory_size; ++j){
-            double y1 = particles[i].trajectory_states[j*4];
-            double y2 = particles[i].trajectory_states[j*4+1];
-            double z = particles[i].trajectory_states[j*4+2];
-            double v_par = particles[i].trajectory_states[j*4+3];
-            double t = particles[i].trajectory_times[j];
+    vector<double> host_traj(nparticles * MAX_STEPS * 5);
+    cudaMemcpy(host_traj.data(), traj_d,
+    nparticles * MAX_STEPS * 5 * sizeof(double),
+    cudaMemcpyDeviceToHost);
 
-            particle_output[output_idx++] = sqrt(y1*y1 + y2*y2);
-            particle_output[output_idx++] = atan2(y2, y1);
-            particle_output[output_idx++] = z;
-            particle_output[output_idx++] = v_par;
-            particle_output[output_idx++] = t;
-        }
-
-    }
-
-    // clean up trajectory memory
-    for(int i=0; i<nparticles; ++i){
-        delete[] particles[i].trajectory_states;
-        delete[] particles[i].trajectory_times;
-    }
-
-
+    cudaFree(traj_d);
+    cudaFree(particles_d);
     delete[] particles;
 
-    return particle_output;
+    return host_traj;
+
+    // return particle_output;
 }
 
 extern "C" py::array_t<double> test_interpolation(py::array_t<double> quad_pts, py::array_t<double> srange, py::array_t<double> trange, py::array_t<double> zrange, py::array_t<double> loc, int n){
