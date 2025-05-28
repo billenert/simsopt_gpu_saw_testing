@@ -465,6 +465,7 @@ __host__ __device__ void adjust_time(particle_t& p, double tmax){
     double rtol=1e-9;
     double err = 0.0;
     bool accept = true;
+    for (int i = 0; i < 4; i++) {
         p.x_err[i] = p.dt*(bhat1 * p.derivs[i] + bhat3 * p.derivs[12+i] + bhat4 * p.derivs[18+i] + bhat5 * p.derivs[24+i] + bhat6 * p.derivs[30+i] + bhat7 * p.derivs[36+i]);
        
         if(i==3){ // account for scale of v_par in absolute tolerance
