@@ -704,7 +704,7 @@ extern "C" vector<double> gpu_tracing_saw(py::array_t<double> quad_pts, py::arra
     
     int output_idx = 0;
 
-    vector<double> particle_output(7*nparticles);
+    // vector<double> particle_output(7*nparticles);
     for(int i=0; i<nparticles; ++i){
         double y1 = particles[i].state[0];
         double y2 = particles[i].state[1];
