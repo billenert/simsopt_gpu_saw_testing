@@ -31,6 +31,10 @@ typedef struct particle_t {
     bool symmetry_exploited;
     int id;
     int step_attempt, step_accept;
+    double* trajectory_states;
+    double* trajectory_times;
+    int trajectory_size;
+    int max_trajectory_size;
 } particle_t;
 
 
@@ -461,7 +465,6 @@ __host__ __device__ void adjust_time(particle_t& p, double tmax){
     double rtol=1e-9;
     double err = 0.0;
     bool accept = true;
-    for (int i = 0; i < 4; i++) {
         p.x_err[i] = p.dt*(bhat1 * p.derivs[i] + bhat3 * p.derivs[12+i] + bhat4 * p.derivs[18+i] + bhat5 * p.derivs[24+i] + bhat6 * p.derivs[30+i] + bhat7 * p.derivs[36+i]);
        
         if(i==3){ // account for scale of v_par in absolute tolerance
@@ -505,6 +508,18 @@ __host__ __device__    void trace_particle(particle_t& p, double* srange_arr, do
 
     setup_particle(p, srange_arr, trange_arr, zrange_arr, quadpts_arr, tmax, m, q, psi0, saw_srange_arr, saw_m_arr, saw_n_arr, saw_phihats_arr, saw_omega, saw_nharmonics);
 
+    p.trajectory_size = 0;
+    p.max_trajectory_size = 10000;
+    p.trajectory_states = new double[4 * p.max_trajectory_size];
+    p.trajectory_times = new double[p.max_trajectory_size];
+
+    // Save initial state
+    for(int i = 0; i < 4; i++) {
+        p.trajectory_states[p.trajectory_size * 4 + i] = p.state[i];
+    }
+    p.trajectory_times[p.trajectory_size] = p.t;
+    p.trajectory_size++;
+
     int counter = 0;
 
     while(p.t < tmax){
@@ -517,6 +532,14 @@ __host__ __device__    void trace_particle(particle_t& p, double* srange_arr, do
         }
         adjust_time(p, tmax);
         
+        if(p.trajectory_size < p.max_trajectory_size) {
+            for(int i = 0; i < 4; i++) {
+                p.trajectory_states[p.trajectory_size * 4 + i] = p.state[i];
+            }
+            p.trajectory_times[p.trajectory_size] = p.t;
+            p.trajectory_size++;
+        }
+
         double s = sqrt(p.state[0]*p.state[0] + p.state[1]*p.state[1]);
         if(s >= 1){
             // printf("particle %d done s=%.15e\n", p.id, s);
@@ -670,6 +693,16 @@ extern "C" vector<double> gpu_tracing_saw(py::array_t<double> quad_pts, py::arra
     cudaEventElapsedTime(&milliseconds, start, stop);
     std::cout << "tracing kernels time (ms): " << milliseconds<< "\n";
     
+    int total_trajectory_points = 0;
+    for(int i = 0; i < nparticles; i++) {
+        total_trajectory_points += particles[i].trajectory_size;
+    }
+
+    // Create output vector with space for final states and trajectories
+    vector<double> particle_output(7*nparticles + 5*total_trajectory_points);
+    
+    int output_idx = 0;
+
     vector<double> particle_output(7*nparticles);
     for(int i=0; i<nparticles; ++i){
         double y1 = particles[i].state[0];
@@ -678,13 +711,44 @@ extern "C" vector<double> gpu_tracing_saw(py::array_t<double> quad_pts, py::arra
         double v_par = particles[i].state[3];
 
         // last location in Boozer coordinates
-        particle_output[7*i] = sqrt(y1*y1 + y2*y2);
-        particle_output[7*i + 1] = atan2(y2, y1);
-        particle_output[7*i + 2] = z;
-        particle_output[7*i + 3] = v_par;
-        particle_output[7*i + 4] = particles[i].t;
-        particle_output[7*i + 5] = particles[i].step_accept;
-        particle_output[7*i + 6] = particles[i].step_attempt;
+        // particle_output[7*i] = sqrt(y1*y1 + y2*y2);
+        // particle_output[7*i + 1] = atan2(y2, y1);
+        // particle_output[7*i + 2] = z;
+        // particle_output[7*i + 3] = v_par;
+        // particle_output[7*i + 4] = particles[i].t;
+        // particle_output[7*i + 5] = particles[i].step_accept;
+        // particle_output[7*i + 6] = particles[i].step_attempt;
+        particle_output[output_idx++] = sqrt(y1*y1 + y2*y2);
+        particle_output[output_idx++] = atan2(y2, y1);
+        particle_output[output_idx++] = z;
+        particle_output[output_idx++] = v_par;
+        particle_output[output_idx++] = particles[i].t;
+        particle_output[output_idx++] = particles[i].step_accept;
+        particle_output[output_idx++] = particles[i].step_attempt;
+    }
+
+    // store trajectories
+    for(int i=0; i<nparticles; ++i){
+        for(int j=0; j<particles[i].trajectory_size; ++j){
+            double y1 = particles[i].trajectory_states[j*4];
+            double y2 = particles[i].trajectory_states[j*4+1];
+            double z = particles[i].trajectory_states[j*4+2];
+            double v_par = particles[i].trajectory_states[j*4+3];
+            double t = particles[i].trajectory_times[j];
+
+            particle_output[output_idx++] = sqrt(y1*y1 + y2*y2);
+            particle_output[output_idx++] = atan2(y2, y1);
+            particle_output[output_idx++] = z;
+            particle_output[output_idx++] = v_par;
+            particle_output[output_idx++] = t;
+        }
+
+    }
+
+    // clean up trajectory memory
+    for(int i=0; i<nparticles; ++i){
+        delete[] particles[i].trajectory_states;
+        delete[] particles[i].trajectory_times;
     }
 
 
