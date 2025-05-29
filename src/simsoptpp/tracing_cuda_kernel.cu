@@ -508,6 +508,7 @@ __host__ __device__    void trace_particle(particle_t& p, double* srange_arr, do
 
     int counter = 0;
     int prev_step_accept = p.step_accept;
+    int steps = 0;
     while(p.t < tmax){
         // if(counter % 1000){
         //     printf("particle %d position %.15e, %.15e, %.15e, %.15e, %.15e, dt=%.15e\n", p.id, p.t, p.state[0], p.state[1], p.state[2], p.state[3], p.dt);
@@ -519,7 +520,7 @@ __host__ __device__    void trace_particle(particle_t& p, double* srange_arr, do
         adjust_time(p, tmax);
         
         // if the step_accept has increased, that means we can record this trajectory point
-        if(p.step_accept > prev_step_accept) {
+        if(p.step_accept > prev_step_accept && steps < MAX_STEPS - 1) {
             prev_step_accept = p.step_accept;
             double y1 = p.state[0], y2 = p.state[1];
             double s = sqrt(y1*y1 + y2*y2);
@@ -527,14 +528,19 @@ __host__ __device__    void trace_particle(particle_t& p, double* srange_arr, do
             double z = p.state[2];
             double vpar = p.state[3];
             double tnow = p.t;
-            int base = (idx * max_steps + step) * 5;
+            int base = (idx * MAX_STEPS + step) * 5;
             traj_buffer[base + 0] = s;
             traj_buffer[base + 1] = theta;
             traj_buffer[base + 2] = z;
             traj_buffer[base + 3] = vpar;
             traj_buffer[base + 4] = tnow;
+            steps ++;
         }
 
+        if (step >= MAX_STEPS) {
+            break;  // remove if testing for runtime
+        }
+        
         double s = sqrt(p.state[0]*p.state[0] + p.state[1]*p.state[1]);
         if(s >= 1){
             // printf("particle %d done s=%.15e\n", p.id, s);
@@ -683,7 +689,7 @@ extern "C" vector<double> gpu_tracing_saw(py::array_t<double> quad_pts, py::arra
     double* traj_d;
     size_t traj_size = (size_t) nparticles * MAX_STEPS * 5 * sizeof(double);
     cudaMalloc(&traj_d, traj_size);
-    cudaMemset(traj_d, 0xFF, traj_size);
+    cudaMemset(traj_d, 0, traj_size);
 
     particle_trace_kernel<<<nblks, nthreads>>>(particles_d, srange_d, trange_d, zrange_d, quadpts_d, tmax, m, q, psi0, nparticles, saw_srange_d, saw_m_d, saw_n_d, saw_phihats_d, saw_omega, saw_nharmonics, traj_d);
 
