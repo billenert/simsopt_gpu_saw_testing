@@ -1,4 +1,4 @@
-# This file was adapted from the "official" pybind11 example at
+# This file was adapted from the "official" pybind11 example at 
 # https://github.com/pybind/cmake_example
 
 import os
