@@ -510,17 +510,18 @@ __host__ __device__    void trace_particle(particle_t& p, double* srange_arr, do
     int prev_step_accept = p.step_accept;
     int steps = 0;
 
-    double next_save = 0;
+    double next_save = dt_save;
 
     while(p.t < tmax){
         // if(counter % 1000){
         //     printf("particle %d position %.15e, %.15e, %.15e, %.15e, %.15e, dt=%.15e\n", p.id, p.t, p.state[0], p.state[1], p.state[2], p.state[3], p.dt);
         // } 
         // ensure no overshoot
-        if (p.t + p.dt > next_save) {
+        if (next_save > p.t && p.t + p.dt > next_save) {
             p.dt = next_save - p.t;
+            if(p.dt <= 0) exit(EXIT_FAILURE);
         }
-        
+          
         for(int k=0; k<7; ++k){
             build_state(p, k, srange_arr, trange_arr, zrange_arr);
             calc_derivs(p, p.derivs + 6*k, srange_arr, trange_arr, zrange_arr, quadpts_arr, m, q, p.mu, psi0, saw_srange_arr, saw_m_arr, saw_n_arr, saw_phihats_arr, saw_omega, saw_nharmonics);
