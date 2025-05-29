@@ -109,7 +109,8 @@ void init_tracing(py::module_ &m){
         py::arg("saw_n"),
         py::arg("saw_phihats"),
         py::arg("saw_omega"),
-        py::arg("saw_nharmonics")
+        py::arg("saw_nharmonics"),
+        py::arg("dt_save")
         );
 
     m.def("test_interpolation", &test_interpolation,
