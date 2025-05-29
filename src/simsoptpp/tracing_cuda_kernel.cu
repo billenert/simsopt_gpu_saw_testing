@@ -446,7 +446,7 @@ __host__ __device__ void setup_particle(particle_t& p, double* srange_arr, doubl
 
 }
 
-__host__ __device__ void adjust_time(particle_t& p, double tmax, double next_save){
+__host__ __device__ void adjust_time(particle_t& p, double tmax){
     // printf("adjust_time particle %d\n", p.id);
 
     if(p.has_left){
@@ -475,9 +475,6 @@ __host__ __device__ void adjust_time(particle_t& p, double tmax, double next_sav
     double dt_new = p.dt*0.9*pow(err, -1.0/3.0);
     dt_new = fmax(dt_new, 0.2 * p.dt);  // Limit step size reduction
     dt_new = fmin(dt_new, 4.5 * p.dt);  // Limit step size increase
-    if (next_save - p.t > 0) {
-        dt_new = fmin(dt_new, next_save - p.t); // ensure we don't overshoot our next save time
-    }
     dt_new = fmin(p.dtmax, dt_new);
     if ((0.5 < err) & (err < 1.0)){
         dt_new = p.dt;
@@ -519,8 +516,13 @@ __host__ __device__    void trace_particle(particle_t& p, double* srange_arr, do
         // if(counter % 1000){
         //     printf("particle %d position %.15e, %.15e, %.15e, %.15e, %.15e, dt=%.15e\n", p.id, p.t, p.state[0], p.state[1], p.state[2], p.state[3], p.dt);
         // } 
-
-        // if t >= next save we can record this trajectory point
+        for(int k=0; k<7; ++k){
+            build_state(p, k, srange_arr, trange_arr, zrange_arr);
+            calc_derivs(p, p.derivs + 6*k, srange_arr, trange_arr, zrange_arr, quadpts_arr, m, q, p.mu, psi0, saw_srange_arr, saw_m_arr, saw_n_arr, saw_phihats_arr, saw_omega, saw_nharmonics);
+        }
+        adjust_time(p, tmax);
+        
+        // if the step_accept has increased, that means we can record this trajectory point
         if(p.t >= next_save && steps < MAX_STEPS - 1) {
             prev_step_accept = p.step_accept;
             double y1 = p.state[0], y2 = p.state[1];
@@ -538,13 +540,6 @@ __host__ __device__    void trace_particle(particle_t& p, double* srange_arr, do
             steps ++;
             next_save += dt_save;
         }
-        
-        for(int k=0; k<7; ++k){
-            build_state(p, k, srange_arr, trange_arr, zrange_arr);
-            calc_derivs(p, p.derivs + 6*k, srange_arr, trange_arr, zrange_arr, quadpts_arr, m, q, p.mu, psi0, saw_srange_arr, saw_m_arr, saw_n_arr, saw_phihats_arr, saw_omega, saw_nharmonics);
-        }
-        adjust_time(p, tmax, next_save);
-        
 
         if (steps >= MAX_STEPS) {
             break;  // remove if testing for runtime
@@ -1007,7 +1002,7 @@ __global__ void test_gpu_timestep_kernel(particle_t* particles, double* srange_a
                 build_state(particles[idx], k, srange_arr, trange_arr, zrange_arr);
                 // calc_derivs(particles[idx], particles[idx].derivs + 6*k, srange_arr, trange_arr, zrange_arr, quadpts_arr, m, q, particles[idx].mu, psi0);
             }
-            adjust_time(particles[idx], 1e-2, 1e-6);
+            adjust_time(particles[idx], 1e-2);
         }
     }
     return;
