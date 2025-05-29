@@ -537,7 +537,7 @@ __host__ __device__    void trace_particle(particle_t& p, double* srange_arr, do
             steps ++;
         }
 
-        if (step >= MAX_STEPS) {
+        if (steps >= MAX_STEPS) {
             break;  // remove if testing for runtime
         }
         
