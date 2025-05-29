@@ -502,13 +502,16 @@ __host__ __device__ void adjust_time(particle_t& p, double tmax){
 
 }
 __host__ __device__    void trace_particle(particle_t& p, double* srange_arr, double* trange_arr, double* zrange_arr, double* quadpts_arr,
-                         double tmax, double m, double q, double psi0, double* saw_srange_arr, int* saw_m_arr, int* saw_n_arr, double* saw_phihats_arr, double saw_omega, int saw_nharmonics, int idx, double* traj_buffer){
+                         double tmax, double m, double q, double psi0, double* saw_srange_arr, int* saw_m_arr, int* saw_n_arr, double* saw_phihats_arr, double saw_omega, int saw_nharmonics, int idx, double* traj_buffer, double dt_save){
 
     setup_particle(p, srange_arr, trange_arr, zrange_arr, quadpts_arr, tmax, m, q, psi0, saw_srange_arr, saw_m_arr, saw_n_arr, saw_phihats_arr, saw_omega, saw_nharmonics);
 
     int counter = 0;
     int prev_step_accept = p.step_accept;
     int steps = 0;
+
+    double next_save = 0;
+
     while(p.t < tmax){
         // if(counter % 1000){
         //     printf("particle %d position %.15e, %.15e, %.15e, %.15e, %.15e, dt=%.15e\n", p.id, p.t, p.state[0], p.state[1], p.state[2], p.state[3], p.dt);
@@ -520,7 +523,7 @@ __host__ __device__    void trace_particle(particle_t& p, double* srange_arr, do
         adjust_time(p, tmax);
         
         // if the step_accept has increased, that means we can record this trajectory point
-        if(p.step_accept > prev_step_accept && steps < MAX_STEPS - 1) {
+        if(p.t >= next_save && steps < MAX_STEPS - 1) {
             prev_step_accept = p.step_accept;
             double y1 = p.state[0], y2 = p.state[1];
             double s = sqrt(y1*y1 + y2*y2);
@@ -535,6 +538,7 @@ __host__ __device__    void trace_particle(particle_t& p, double* srange_arr, do
             traj_buffer[base + 3] = vpar;
             traj_buffer[base + 4] = tnow;
             steps ++;
+            next_save += dt_save;
         }
 
         if (steps >= MAX_STEPS) {
@@ -557,12 +561,12 @@ __host__ __device__    void trace_particle(particle_t& p, double* srange_arr, do
 }
 
 __global__ void particle_trace_kernel(particle_t* particles, double* srange_arr, double* trange_arr, double* zrange_arr, double* quadpts_arr,
-                        double tmax, double m, double q, double psi0, int nparticles, double* saw_srange_arr, int* saw_m_arr, int* saw_n_arr, double* saw_phihats_arr, double saw_omega, int saw_nharmonics, double* traj_buffer){
+                        double tmax, double m, double q, double psi0, int nparticles, double* saw_srange_arr, int* saw_m_arr, int* saw_n_arr, double* saw_phihats_arr, double saw_omega, int saw_nharmonics, double* traj_buffer, double dt_save){
     // added traj buffer
     int idx = threadIdx.x + blockIdx.x*blockDim.x;
     if(idx < nparticles){
         // printf("tracing particle %d\n", idx);
-        trace_particle(particles[idx], srange_arr, trange_arr, zrange_arr, quadpts_arr, tmax, m, q, psi0, saw_srange_arr, saw_m_arr, saw_n_arr, saw_phihats_arr, saw_omega, saw_nharmonics, idx, traj_buffer);
+        trace_particle(particles[idx], srange_arr, trange_arr, zrange_arr, quadpts_arr, tmax, m, q, psi0, saw_srange_arr, saw_m_arr, saw_n_arr, saw_phihats_arr, saw_omega, saw_nharmonics, idx, traj_buffer, dt_save);
     }
 }
 
@@ -570,7 +574,7 @@ __global__ void particle_trace_kernel(particle_t* particles, double* srange_arr,
 // matches GuidingCenterVacuumBoozerPerturbedRHS
 extern "C" vector<double> gpu_tracing_saw(py::array_t<double> quad_pts, py::array_t<double> srange,
         py::array_t<double> trange, py::array_t<double> zrange, py::array_t<double> stz_init, double m, double q, double vtotal, py::array_t<double> vtang, 
-        double tmax, double tol, double psi0, int nparticles, py::array_t<double> saw_srange, py::array_t<int> saw_m, py::array_t<int> saw_n, py::array_t<double> saw_phihats, double saw_omega, int saw_nharmonics){
+        double tmax, double tol, double psi0, int nparticles, py::array_t<double> saw_srange, py::array_t<int> saw_m, py::array_t<int> saw_n, py::array_t<double> saw_phihats, double saw_omega, int saw_nharmonics, double dt_save){
 
     //  read data in from python
     auto ptr = stz_init.data();
@@ -691,7 +695,7 @@ extern "C" vector<double> gpu_tracing_saw(py::array_t<double> quad_pts, py::arra
     cudaMalloc(&traj_d, traj_size);
     cudaMemset(traj_d, 0, traj_size);
 
-    particle_trace_kernel<<<nblks, nthreads>>>(particles_d, srange_d, trange_d, zrange_d, quadpts_d, tmax, m, q, psi0, nparticles, saw_srange_d, saw_m_d, saw_n_d, saw_phihats_d, saw_omega, saw_nharmonics, traj_d);
+    particle_trace_kernel<<<nblks, nthreads>>>(particles_d, srange_d, trange_d, zrange_d, quadpts_d, tmax, m, q, psi0, nparticles, saw_srange_d, saw_m_d, saw_n_d, saw_phihats_d, saw_omega, saw_nharmonics, traj_d, dt_save);
 
     // cudaMemcpy(particles, particles_d, nparticles * sizeof(particle_t), cudaMemcpyDeviceToHost);
 
