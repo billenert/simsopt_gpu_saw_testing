@@ -528,7 +528,7 @@ __host__ __device__    void trace_particle(particle_t& p, double* srange_arr, do
             double z = p.state[2];
             double vpar = p.state[3];
             double tnow = p.t;
-            int base = (idx * MAX_STEPS + step) * 5;
+            int base = (idx * MAX_STEPS + steps) * 5;
             traj_buffer[base + 0] = s;
             traj_buffer[base + 1] = theta;
             traj_buffer[base + 2] = z;
