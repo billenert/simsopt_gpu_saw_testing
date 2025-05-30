@@ -446,7 +446,7 @@ __host__ __device__ void setup_particle(particle_t& p, double* srange_arr, doubl
 
 }
 
-__host__ __device__ void adjust_time(particle_t& p, double tmax){
+__host__ __device__ void adjust_time(particle_t& p, double tmax, double tol){
     // printf("adjust_time particle %d\n", p.id);
 
     if(p.has_left){
@@ -458,8 +458,8 @@ __host__ __device__ void adjust_time(particle_t& p, double tmax){
     // Compute  error
     // https://live.boost.org/doc/libs/1_82_0/libs/numeric/odeint/doc/html/boost_numeric_odeint/odeint_in_detail/steppers.html
     // resolve typo in boost docs: https://numerical.recipes/book.html
-    double atol=1e-11;
-    double rtol=1e-11;
+    double atol=tol;
+    double rtol=tol;
     double err = 0.0;
     bool accept = true;
     for (int i = 0; i < 4; i++) {
@@ -502,7 +502,7 @@ __host__ __device__ void adjust_time(particle_t& p, double tmax){
 
 }
 __host__ __device__    void trace_particle(particle_t& p, double* srange_arr, double* trange_arr, double* zrange_arr, double* quadpts_arr,
-                         double tmax, double m, double q, double psi0, double* saw_srange_arr, int* saw_m_arr, int* saw_n_arr, double* saw_phihats_arr, double saw_omega, int saw_nharmonics, int idx, double* traj_buffer, double dt_save){
+                         double tmax, double m, double q, double psi0, double* saw_srange_arr, int* saw_m_arr, int* saw_n_arr, double* saw_phihats_arr, double saw_omega, int saw_nharmonics, int idx, double* traj_buffer, double dt_save, double tol){
 
     setup_particle(p, srange_arr, trange_arr, zrange_arr, quadpts_arr, tmax, m, q, psi0, saw_srange_arr, saw_m_arr, saw_n_arr, saw_phihats_arr, saw_omega, saw_nharmonics);
 
@@ -526,7 +526,7 @@ __host__ __device__    void trace_particle(particle_t& p, double* srange_arr, do
             build_state(p, k, srange_arr, trange_arr, zrange_arr);
             calc_derivs(p, p.derivs + 6*k, srange_arr, trange_arr, zrange_arr, quadpts_arr, m, q, p.mu, psi0, saw_srange_arr, saw_m_arr, saw_n_arr, saw_phihats_arr, saw_omega, saw_nharmonics);
         }
-        adjust_time(p, tmax);
+        adjust_time(p, tmax, tol);
         
         // if the step_accept has increased, that means we can record this trajectory point
         if(p.t >= next_save && steps < MAX_STEPS - 1) {
@@ -567,12 +567,12 @@ __host__ __device__    void trace_particle(particle_t& p, double* srange_arr, do
 }
 
 __global__ void particle_trace_kernel(particle_t* particles, double* srange_arr, double* trange_arr, double* zrange_arr, double* quadpts_arr,
-                        double tmax, double m, double q, double psi0, int nparticles, double* saw_srange_arr, int* saw_m_arr, int* saw_n_arr, double* saw_phihats_arr, double saw_omega, int saw_nharmonics, double* traj_buffer, double dt_save){
+                        double tmax, double m, double q, double psi0, int nparticles, double* saw_srange_arr, int* saw_m_arr, int* saw_n_arr, double* saw_phihats_arr, double saw_omega, int saw_nharmonics, double* traj_buffer, double dt_save, double tol){
     // added traj buffer
     int idx = threadIdx.x + blockIdx.x*blockDim.x;
     if(idx < nparticles){
         // printf("tracing particle %d\n", idx);
-        trace_particle(particles[idx], srange_arr, trange_arr, zrange_arr, quadpts_arr, tmax, m, q, psi0, saw_srange_arr, saw_m_arr, saw_n_arr, saw_phihats_arr, saw_omega, saw_nharmonics, idx, traj_buffer, dt_save);
+        trace_particle(particles[idx], srange_arr, trange_arr, zrange_arr, quadpts_arr, tmax, m, q, psi0, saw_srange_arr, saw_m_arr, saw_n_arr, saw_phihats_arr, saw_omega, saw_nharmonics, idx, traj_buffer, dt_save, tol);
     }
 }
 
@@ -701,7 +701,7 @@ extern "C" vector<double> gpu_tracing_saw(py::array_t<double> quad_pts, py::arra
     cudaMalloc(&traj_d, traj_size);
     cudaMemset(traj_d, 0, traj_size);
 
-    particle_trace_kernel<<<nblks, nthreads>>>(particles_d, srange_d, trange_d, zrange_d, quadpts_d, tmax, m, q, psi0, nparticles, saw_srange_d, saw_m_d, saw_n_d, saw_phihats_d, saw_omega, saw_nharmonics, traj_d, dt_save);
+    particle_trace_kernel<<<nblks, nthreads>>>(particles_d, srange_d, trange_d, zrange_d, quadpts_d, tmax, m, q, psi0, nparticles, saw_srange_d, saw_m_d, saw_n_d, saw_phihats_d, saw_omega, saw_nharmonics, traj_d, dt_save, tol);
 
     // cudaMemcpy(particles, particles_d, nparticles * sizeof(particle_t), cudaMemcpyDeviceToHost);
 
@@ -1008,7 +1008,7 @@ __global__ void test_gpu_timestep_kernel(particle_t* particles, double* srange_a
                 build_state(particles[idx], k, srange_arr, trange_arr, zrange_arr);
                 // calc_derivs(particles[idx], particles[idx].derivs + 6*k, srange_arr, trange_arr, zrange_arr, quadpts_arr, m, q, particles[idx].mu, psi0);
             }
-            adjust_time(particles[idx], 1e-2);
+            adjust_time(particles[idx], 1e-2, 1e-9);
         }
     }
     return;
