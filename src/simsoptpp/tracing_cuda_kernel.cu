@@ -552,7 +552,7 @@ __host__ __device__    void trace_particle(particle_t& p, double* srange_arr, do
         }
         
         double s = sqrt(p.state[0]*p.state[0] + p.state[1]*p.state[1]);
-        if(s >= 1){
+        if(s >= 0.9){
             // printf("particle %d done s=%.15e\n", p.id, s);
             p.has_left = true;
             return;
