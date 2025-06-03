@@ -465,9 +465,9 @@ __host__ __device__ void adjust_time(particle_t& p, double tmax, double tol){
     for (int i = 0; i < 4; i++) {
         p.x_err[i] = p.dt*(bhat1 * p.derivs[i] + bhat3 * p.derivs[12+i] + bhat4 * p.derivs[18+i] + bhat5 * p.derivs[24+i] + bhat6 * p.derivs[30+i] + bhat7 * p.derivs[36+i]);
        
-        if(i==3){ // account for scale of v_par in absolute tolerance
-            atol *= 1e5;
-        }
+        // if(i==3){ // account for scale of v_par in absolute tolerance
+        //     atol *= 1e5;
+        // }
         p.x_err[i] = fabs(p.x_err[i]) / (atol + rtol*(fabs(p.state[i]) + p.dt*fabs(p.derivs[i])));      
         err = fmax(err, p.x_err[i]);
     }
@@ -491,7 +491,7 @@ __host__ __device__ void adjust_time(particle_t& p, double tmax, double tol){
         p.state[3] = p.x_temp[3];
 
         double s = sqrt(p.state[0]*p.state[0] + p.state[1]*p.state[1]);
-        p.has_left = s >= 1;
+        p.has_left = s >= 0.9;
         p.step_accept++;
 
 
