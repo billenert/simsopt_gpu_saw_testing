@@ -612,13 +612,13 @@ __host__ __device__    void poincare_trace(particle_t& p, double* srange_arr, do
             calc_derivs(p, p.derivs + 6*k, srange_arr, trange_arr, zrange_arr, quadpts_arr, m, q, p.mu, psi0, saw_srange_arr, saw_m_arr, saw_n_arr, saw_phihats_arr, saw_omega, saw_nharmonics);
         }
 
+        int old_accept = p.step_accept;
 
         adjust_time(p, tmax, tol);
         
         double current_z = p.state[2];
         double current_tnow = p.t;
         // check hitting for each current plane
-        int old_accept = p.step_accept;
         bool accepted = (p.step_accept > old_accept);
 
         if(!accepted) continue;
