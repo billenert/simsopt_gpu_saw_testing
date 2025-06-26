@@ -873,7 +873,7 @@ extern "C" vector<double> poincare_plotting(py::array_t<double> quad_pts, py::ar
 }
 
 extern "C" vector<double> gpu_tracing_saw(py::array_t<double> quad_pts, py::array_t<double> srange,
-        py::array_t<double> trange, py::array_t<double> zrange, py::array_t<double> stz_init, double m, double q, double vtotal, py::array_t<double> vtang, 
+        py::array_t<double> trange, py::array_t<double> zrange, py::array_t<double> stz_init, double m, double q, py::array_t<double> vtang, py::array_t<double> mus,
         double tmax, double tol, double psi0, int nparticles, py::array_t<double> saw_srange, py::array_t<int> saw_m, py::array_t<int> saw_n, py::array_t<double> saw_phihats, double saw_omega, int saw_nharmonics, double dt_save){
 
     //  read data in from python
@@ -884,6 +884,9 @@ extern "C" vector<double> gpu_tracing_saw(py::array_t<double> quad_pts, py::arra
     
     py::buffer_info vtang_buf = vtang.request();
     double* vtang_arr = static_cast<double*>(vtang_buf.ptr);
+
+    py::buffer_info mus_buf = mus.request();
+    double* mus_arr = static_cast<double*>(mus_buf.ptr);
 
     // contains b field
     py::buffer_info quadpts_buf = quad_pts.request();
@@ -918,6 +921,8 @@ extern "C" vector<double> gpu_tracing_saw(py::array_t<double> quad_pts, py::arra
     */
 
     // load initial conditions
+    particle_t tmp{};
+    double mu_i;
     for(int i=0; i<nparticles; ++i){
         int start = 3*i;
 
@@ -930,14 +935,27 @@ extern "C" vector<double> gpu_tracing_saw(py::array_t<double> quad_pts, py::arra
         
         particles[i].state[2] = stz_init_arr[start+2];
         particles[i].state[3] = vtang_arr[i];
-        particles[i].v_perp = sqrt(vtotal*vtotal -  vtang_arr[i]*vtang_arr[i]);
-        particles[i].v_total = vtotal;
         particles[i].has_left = false;
         particles[i].t = 0;
         
         particles[i].step_accept = 0;
         particles[i].step_attempt = 0;
         particles[i].id = i;
+        
+        mu_i = mus_arr[i];
+        tmp = particles[i]; 
+        build_state(tmp, 0, srange_arr, trange_arr, zrange_arr);
+        calc_derivs(tmp, tmp.derivs,
+                    srange_arr, trange_arr, zrange_arr,
+                    quadpts_arr,
+                    m, q, -1, psi0,
+                    saw_srange_arr, saw_m_arr, saw_n_arr,
+                    saw_phihats_arr, saw_omega, saw_nharmonics);
+        double B0 = tmp.derivs[4];
+    
+        particles[i].v_perp = sqrt(2*mu_i * B0);
+        particles[i].v_total = sqrt(particles[i].v_perp*particles[i].v_perp + particles[i].state[3]*particles[i].state[3]);
+
         
     }
    
