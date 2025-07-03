@@ -168,21 +168,21 @@ __host__  __device__ void calc_derivs(particle_t& p, double* __restrict__ out, c
     }
 
     // change derivatives wrt s to derivs wrt psi
-    // interpolants[1] /= psi0; // dmodBdpsi
-    // interpolants[5] /= psi0; // dGdpsi
-    // interpolants[7] /= psi0; // dIdpsi
-    // interpolants[9] /= psi0; // diotadpsi
+    interpolants[1] /= psi0; // dmodBdpsi
+    interpolants[5] /= psi0; // dGdpsi
+    interpolants[7] /= psi0; // dIdpsi
+    interpolants[9] /= psi0; // diotadpsi
 
-    double modB = interpolants[0];
-    double dmodBdpsi = interpolants[1]/psi0;
-    double dmodBdtheta = interpolants[2];
-    double dmodBdzeta = interpolants[3];
-    double G = interpolants[4];
-    double dGdpsi = interpolants[5] / psi0;
-    double I = interpolants[6];
-    double dIdpsi = interpolants[7]/psi0;
-    double iota = interpolants[8];
-    double diotadpsi = interpolants[9]/psi0;
+    // double modB = interpolants[0];
+    // double dmodBdpsi = interpolants[1]/psi0;
+    // double dmodBdtheta = interpolants[2];
+    // double dmodBdzeta = interpolants[3];
+    // double G = interpolants[4];
+    // double dGdpsi = interpolants[5] / psi0;
+    // double I = interpolants[6];
+    // double dIdpsi = interpolants[7]/psi0;
+    // double iota = interpolants[8];
+    // double diotadpsi = interpolants[9]/psi0;
 
     // contains phi, phidot, dphi_dpsi, dphi_dtheta, dphi_dzeta
     double phi_info_contrib[5];
@@ -267,37 +267,22 @@ __host__  __device__ void calc_derivs(particle_t& p, double* __restrict__ out, c
     //     alpha_info[4] += -dphi_dzeta_i * iota_mn / (saw_omega*G_iI);
     // }
 
-    // 0 modB, 1 dmodBds, 2 dmodBdtheta, 3 dmodBdzeta, 4 G, 5 dGds, 6 I, 7 dIds, 8 iota, 9 diotads
 
     double fak1 = m*v_par*v_par/interpolants[0] + m*mu;
-    double denom = (q*(G + I*(-alpha*dGdpsi + iota) + alpha*G*dIdpsi) 
-    + m*v_par/modB * (-dGdpsi*I + G*dIdpsi)); // q*G in vacuum
-
-    double sdot = (-G*dphi_dtheta*q + I*dphi_dzeta*q + modB*q*v_par*(dalpha_dtheta*G-dalpha_dzeta*I) + (-dmodBdtheta*G + dmodBdzeta*I)*fak1)/(denom*psi0);
-    double tdot = (G*q*dphi_dpsi + modB*q*v_par*(-dalpha_dpsi*G - alpha*dGdpsi + iota) - dGdpsi*m*v_par*v_par \
-              + dmodBdpsi*G*fak1)/denom;
+    double sdot = (-interpolants[2]*fak1/q + dalpha_dtheta*interpolants[0]*v_par - dphi_dtheta)/psi0;
+    double tdot = interpolants[1]*fak1/q + (interpolants[8] - dalpha_dpsi*interpolants[4])*v_par*interpolants[0]/interpolants[4] + dphi_dpsi;
 
     out[0] = sdot*cos(theta) - s*sin(theta)*tdot;
     out[1] = sdot*sin(theta) + s*cos(theta)*tdot;
-    out[2] = (-I*(dmodBdpsi*m*mu + dphi_dpsi*q) + modB*q*v_par*(1 + dalpha_dpsi*I + alpha*dIdpsi) \
-                      + m*v_par*v_par/modB * (modB*dIdpsi - dmodBdpsi*I))/denom;
+    out[2] = v_par*interpolants[0]/interpolants[4];
 
-    out[3] = (modB*q/m * ( -m*mu * (dmodBdzeta*(1 + dalpha_dpsi*I + alpha*dIdpsi) \
-                + dmodBdpsi*(dalpha_dtheta*G - dalpha_dzeta*I) + dmodBdtheta*(iota - alpha*dGdpsi - dalpha_dpsi*G)) \
-                - q*(alphadot*(G + I*(iota - alpha*dGdpsi) + alpha*G*dIdpsi) \
-                + (dalpha_dtheta*G - dalpha_dzeta*I)*dphi_dpsi \
-                + (iota - alpha*dGdpsi - dalpha_dpsi*G)*dphi_dtheta \
-                + (1 + alpha*dIdpsi + dalpha_dpsi*I)*dphi_dzeta)) \
-                + q*v_par/modB * ((dmodBdtheta*G - dmodBdzeta*I)*dphi_dpsi \
-                + dmodBdpsi*(I*dphi_dzeta - G*dphi_dtheta)) \
-                + v_par*(m*mu*(dmodBdtheta*dGdpsi - dmodBdzeta*dIdpsi) \
-                + q*(alphadot*(dGdpsi*I-G*dIdpsi) + dGdpsi*dphi_dtheta - dIdpsi*dphi_dzeta)))/denom;
+    out[3] = -interpolants[0]/(interpolants[4]*m) * (m*mu*(interpolants[3] + dalpha_dtheta*interpolants[1]*interpolants[4] 
+                    + interpolants[2]*(interpolants[8] - dalpha_dpsi*interpolants[4])) + q*(alphadot*interpolants[4] 
+                    + dalpha_dtheta*interpolants[4]*dphi_dpsi + (interpolants[8] - dalpha_dpsi*interpolants[4])*dphi_dtheta + dphi_dzeta)) 
+                    + v_par/interpolants[0] * (interpolants[2]*dphi_dpsi - interpolants[1]*dphi_dtheta);
 
     out[4] = interpolants[0]; //modB
     out[5] = interpolants[4]; // G
-
-    // 0 modB, 1 dmodBds, 2 dmodBdtheta, 3 dmodBdzeta, 4 G, 5 dGds, 6 I, 7 dIds, 8 iota, 9 diotads
-
 
     //printf("particle %d interpolants modB=%.15e, dmodBdpsi=%.15e, dmodBdtheta=%.15e, dmodBdzeta=%.15e, G=%.15e, dGdpsi=%.15e, I=%.15e, dIdpsi=%.15e, iota=%.15e, diotadpsi=%.15e\n", p.id, interpolants[0], interpolants[1], interpolants[2], interpolants[3], interpolants[4], interpolants[5], interpolants[6], interpolants[7], interpolants[8], interpolants[9]);
     //printf("particle %d rhs at position s=%.15e, theta=%.15e, zeta=%.15e, vpar=%.15e, time=%.15e: %.15e, %.15e, %.15e, %.15e, dt=%.15e\n", p.id, s, theta, z, v_par, time, out[0], out[1], out[2], out[3], p.dt);
