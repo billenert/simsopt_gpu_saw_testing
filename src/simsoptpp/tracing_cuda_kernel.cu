@@ -184,6 +184,12 @@ __host__  __device__ void calc_derivs(particle_t& p, double* __restrict__ out, c
     double iota = interpolants[8];
     double diotadpsi = interpolants[9]/psi0;
 
+    interpolants[1] /= psi0; // dmodBdpsi
+    interpolants[5] /= psi0; // dGdpsi
+    interpolants[7] /= psi0; // dIdpsi
+    interpolants[9] /= psi0; // diotadpsi
+
+
     // contains phi, phidot, dphi_dpsi, dphi_dtheta, dphi_dzeta
     double phi_info_contrib[5];
     double phi = 0.0;
