@@ -17,7 +17,12 @@ extern "C" vector<double> gpu_tracing_saw(py::array_t<double> quad_pts, py::arra
 extern "C" vector<double> poincare_plotting(py::array_t<double> quad_pts, py::array_t<double> srange,
     py::array_t<double> trange, py::array_t<double> zrange, py::array_t<double> stz_init, double m, double q, py::array_t<double> vtang, py::array_t<double> mus,
     double tmax, double tol, double psi0, int nparticles, py::array_t<double> saw_srange, py::array_t<int> saw_m, py::array_t<int> saw_n, py::array_t<double> saw_phihats, double saw_omega, int saw_nharmonics, double dt_save, int MAX_PUNCTURES, py::array_t<double> zetas, py::array_t<double> omegas);
-        
+
+extern "C" vector<double> poloidal_poincare_plotting(py::array_t<double> quad_pts, py::array_t<double> srange,
+    py::array_t<double> trange, py::array_t<double> zrange, py::array_t<double> stz_init, double m, double q, py::array_t<double> vtang, py::array_t<double> mus,
+    double tmax, double tol, double psi0, int nparticles, py::array_t<double> saw_srange, py::array_t<int> saw_m, py::array_t<int> saw_n, py::array_t<double> saw_phihats, double saw_omega, int saw_nharmonics, double dt_save, int MAX_PUNCTURES, py::array_t<double> thetas, py::array_t<double> omegas);
+    
+
 extern "C" py::array_t<double> test_interpolation(py::array_t<double> quad_pts, py::array_t<double> srange, py::array_t<double> trange, py::array_t<double> zrange, py::array_t<double> loc, int n);
 extern "C" py::array_t<double> test_gpu_interpolation(py::array_t<double> quad_pts, py::array_t<double> srange, py::array_t<double> trange, py::array_t<double> zrange, py::array_t<double> loc, int n, int n_points);
 
@@ -142,6 +147,33 @@ void init_tracing(py::module_ &m){
         py::arg("zetas"),
         py::arg("omegas")
         );
+    
+    m.def("poloidal_poincare_plotting", &poloidal_poincare_plotting,
+        py::arg("quad_pts"),
+        py::arg("srange"),
+        py::arg("trange"),
+        py::arg("zrange"),
+        py::arg("stz_init"),
+        py::arg("m"),
+        py::arg("q"),
+        py::arg("vtang"),
+        py::arg("mus"),
+        py::arg("tmax"),
+        py::arg("tol"),
+        py::arg("psi0"),
+        py::arg("nparticles"),
+        py::arg("saw_srange"),
+        py::arg("saw_m"),
+        py::arg("saw_n"),
+        py::arg("saw_phihats"),
+        py::arg("saw_omega"),
+        py::arg("saw_nharmonics"),
+        py::arg("dt_save"),
+        py::arg("MAX_PUNCTURES"),
+        py::arg("thetas"),
+        py::arg("omegas")
+        );
+    
         
 
     m.def("test_interpolation", &test_interpolation,
