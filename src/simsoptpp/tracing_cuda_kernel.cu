@@ -911,6 +911,337 @@ extern "C" vector<double> poincare_plotting(py::array_t<double> quad_pts, py::ar
     // return particle_output;
 }
 
+
+__host__ __device__    void poloidal_poincare_trace(particle_t& p, double* srange_arr, double* trange_arr, double* zrange_arr, double* quadpts_arr,
+                         double tmax, double m, double q, double psi0, double* saw_srange_arr, int* saw_m_arr, int* saw_n_arr, double* saw_phihats_arr, double saw_omega, int saw_nharmonics, int idx, double* traj_buffer, double dt_save, double tol, int MAX_PUNCTURES, double* thetas_arr, double* omegas_arr, int num_planes){
+
+    setup_particle(p, srange_arr, trange_arr, zrange_arr, quadpts_arr, tmax, m, q, psi0, saw_srange_arr, saw_m_arr, saw_n_arr, saw_phihats_arr, saw_omega, saw_nharmonics);
+
+    int counter = 0;
+    int prev_step_accept = p.step_accept;
+    int steps = 0;
+
+    double punctures = 0;
+
+    while(p.t < tmax && punctures < MAX_PUNCTURES){
+
+        // double state[4];
+        // double v_perp; // Velocity perpendicular
+        // double v_total;
+        // bool has_left;
+        // double dt;
+        // double dtmax;
+        // double t;
+        // double mu;
+    
+
+        double last_y1 = p.state[0], last_y2 = p.state[1];
+        double last_s = sqrt(last_y1*last_y1 + last_y2*last_y2);
+        double last_theta = atan2(last_y2, last_y1);
+        double last_z = p.state[2];
+        double last_vpar = p.state[3];
+        double last_tnow = p.t;
+        
+
+        for(int k=0; k<7; ++k){
+            build_state(p, k, srange_arr, trange_arr, zrange_arr);
+            calc_derivs(p, p.derivs + 6*k, srange_arr, trange_arr, zrange_arr, quadpts_arr, m, q, p.mu, psi0, saw_srange_arr, saw_m_arr, saw_n_arr, saw_phihats_arr, saw_omega, saw_nharmonics);
+        }
+
+        int old_accept = p.step_accept;
+
+        adjust_time(p, tmax, tol);
+        
+        double current_y1 = p.state[0], current_y2 = p.state[1];
+        double current_theta = atan2(current_y2, current_y1);
+        double current_tnow = p.t;
+        // check hitting for each current plane
+        bool accepted = (p.step_accept > old_accept);
+
+        if(!accepted) continue;
+        for(int curr_plane = 0; curr_plane < num_planes; curr_plane ++) {
+            if(punctures == MAX_PUNCTURES) break;
+            double theta = thetas_arr[curr_plane];
+            double omega = omegas_arr[curr_plane];
+            double phase_last = last_theta - omega * last_tnow;
+            double phase_current = current_theta - omega * current_tnow;
+            
+            double last_quotient = floor((phase_last-theta)/(2*M_PI));
+            double curr_quotient = floor((phase_current-theta)/(2*M_PI));
+
+            int dq = (int) ((int) floor((phase_current-theta)/(2*M_PI))) - ((int) floor((phase_last-theta)/(2*M_PI)));
+            if (last_quotient != curr_quotient) { // checks if zeta1 - omega * t1 < zeta + 2kpi < zeta_2 - omega t_2
+                double current_y1 = p.state[0], current_y2 = p.state[1];
+                double current_vpar = p.state[3];
+                double current_z = p.state[2];
+                
+                // adjust zeta for by a factor of 2kpi
+                double k = (dq > 0 ? curr_quotient : last_quotient);
+                double adjusted_hit = theta + 2*k*M_PI;
+
+                // IGNORE THIS parametrize using LINE = last + x(current - last)
+                // root solve to find the y1, y2 that work for hitting the theta plane: y2 is y, y1 is x
+
+                double x = (adjusted_hit - phase_last)/(phase_current - phase_last);
+                double y1 = last_y1 + x * (current_y1 - last_y1);
+                double y2 = last_y2 + x * (current_y2 - last_y2);
+                double s = sqrt(y1 * y1 + y2 * y2);
+                double z = last_z + x * (current_z - last_z);
+                double vpar = last_vpar + x * (current_vpar - last_vpar);
+                double tnow = last_tnow + x * (current_tnow - last_tnow);
+
+                                
+                // double x = (adjusted_hit - phase_last)/(phase_current - phase_last);
+                
+                // double y1 = last_y1 + x * (current_y1 - last_y1);
+                // double y2 = last_y2 + x * (current_y2 - last_y2);
+                // double s = sqrt(y1 * y1 + y2 * y2);
+                // double theta = atan2(y2, y1);
+                // double z = last_z + x * (current_z - last_z);
+                // double vpar = last_vpar + x * (current_vpar - last_vpar);
+                // double tnow = last_tnow + x * (current_tnow - last_tnow);
+
+                
+                int base = ((idx * num_planes + curr_plane) * MAX_PUNCTURES + punctures) * 5;        
+                traj_buffer[base + 0] = s;
+                traj_buffer[base + 1] = theta;
+                traj_buffer[base + 2] = z;
+                traj_buffer[base + 3] = vpar;
+                traj_buffer[base + 4] = tnow;    
+
+                punctures ++;
+            }
+        }
+                
+        double s = sqrt(p.state[0]*p.state[0] + p.state[1]*p.state[1]);
+        if(s >= 1.0){
+            // printf("particle %d done s=%.15e\n", p.id, s);
+            p.has_left = true;
+            return;
+        }
+
+        counter++;
+
+    }
+    // double s = sqrt(p.state[0]*p.state[0] + p.state[1]*p.state[1]);
+    // printf("particle %d done s=%.15e\n", p.id, s);
+    return;
+}
+
+
+__global__ void poloidal_poincare_kernel(particle_t* particles, double* srange_arr, double* trange_arr, double* zrange_arr, double* quadpts_arr,
+                        double tmax, double m, double q, double psi0, int nparticles, double* saw_srange_arr, int* saw_m_arr, int* saw_n_arr, double* saw_phihats_arr, double saw_omega, int saw_nharmonics, double* poincare_buffer, double dt_save, double tol, int MAX_PUNCTURES, double* thetas_arr, double* omegas_arr, int num_planes){
+    // added traj buffer
+    int idx = threadIdx.x + blockIdx.x*blockDim.x;
+    if(idx < nparticles){
+        // printf("tracing particle %d\n", idx);
+        poloidal_poincare_trace(particles[idx], srange_arr, trange_arr, zrange_arr, quadpts_arr, tmax, m, q, psi0, saw_srange_arr, saw_m_arr, saw_n_arr, saw_phihats_arr, saw_omega, saw_nharmonics, idx, poincare_buffer, dt_save, tol, MAX_PUNCTURES, thetas_arr, omegas_arr, num_planes);
+    }
+}
+
+
+extern "C" vector<double> poloidal_poincare_plotting(py::array_t<double> quad_pts, py::array_t<double> srange,
+        py::array_t<double> trange, py::array_t<double> zrange, py::array_t<double> stz_init, double m, double q, py::array_t<double> vtang, py::array_t<double> mus,
+        double tmax, double tol, double psi0, int nparticles, py::array_t<double> saw_srange, py::array_t<int> saw_m, py::array_t<int> saw_n, py::array_t<double> saw_phihats, double saw_omega, int saw_nharmonics, double dt_save, int MAX_PUNCTURES, py::array_t<double> thetas, py::array_t<double> omegas){
+
+    //  read data in from python
+    auto ptr = stz_init.data();
+    int size = stz_init.size();
+    int num_planes = thetas.size();
+    double stz_init_arr[size];
+    std::memcpy(stz_init_arr, ptr, size * sizeof(double));
+    
+    py::buffer_info vtang_buf = vtang.request();
+    double* vtang_arr = static_cast<double*>(vtang_buf.ptr);
+
+    py::buffer_info mus_buf = mus.request();
+    double* mus_arr = static_cast<double*>(mus_buf.ptr);
+
+    // contains b field
+    py::buffer_info quadpts_buf = quad_pts.request();
+    double* quadpts_arr = static_cast<double*>(quadpts_buf.ptr);
+
+    py::buffer_info s_buf = srange.request();
+    double* srange_arr = static_cast<double*>(s_buf.ptr);
+
+    py::buffer_info t_buf = trange.request();
+    double* trange_arr = static_cast<double*>(t_buf.ptr);
+
+    py::buffer_info z_buf = zrange.request();
+    double* zrange_arr = static_cast<double*>(z_buf.ptr);
+
+    py::buffer_info saw_s_buf = saw_srange.request();
+    double* saw_srange_arr = static_cast<double*>(saw_s_buf.ptr);
+
+    py::buffer_info saw_m_buf = saw_m.request();
+    int* saw_m_arr = static_cast<int*>(saw_m_buf.ptr);
+
+    py::buffer_info saw_n_buf = saw_n.request();
+    int* saw_n_arr = static_cast<int*>(saw_n_buf.ptr);
+
+    py::buffer_info saw_phihats_buf = saw_phihats.request();
+    double* saw_phihats_arr = static_cast<double*>(saw_phihats_buf.ptr);
+
+    py::buffer_info thetas_buf = thetas.request();
+    double* thetas_arr = static_cast<double*>(thetas_buf.ptr);
+
+    py::buffer_info omegas_buf = omegas.request();
+    double* omegas_arr = static_cast<double*>(omegas_buf.ptr);
+    
+    particle_t* particles =  new particle_t[nparticles];
+
+    /*
+    * y1 = s*cos(theta)
+    * y2 = s*sin(theta)
+    */
+
+    // load initial conditions
+    particle_t tmp{};
+    double mu_i;
+    for(int i=0; i<nparticles; ++i){
+        int start = 3*i;
+
+        double s = stz_init_arr[start];
+        double theta = stz_init_arr[start+1];
+        
+        // convert to alternative coordinates
+        particles[i].state[0] = s*cos(theta);
+        particles[i].state[1] = s*sin(theta);
+        
+        particles[i].state[2] = stz_init_arr[start+2];
+        particles[i].state[3] = vtang_arr[i];
+        particles[i].has_left = false;
+        particles[i].t = 0;
+        
+        particles[i].step_accept = 0;
+        particles[i].step_attempt = 0;
+        particles[i].id = i;
+        
+        mu_i = mus_arr[i];
+        tmp = particles[i]; 
+        build_state(tmp, 0, srange_arr, trange_arr, zrange_arr);
+        calc_derivs(tmp, tmp.derivs,
+                    srange_arr, trange_arr, zrange_arr,
+                    quadpts_arr,
+                    m, q, -1, psi0,
+                    saw_srange_arr, saw_m_arr, saw_n_arr,
+                    saw_phihats_arr, saw_omega, saw_nharmonics);
+        double B0 = tmp.derivs[4];
+    
+        particles[i].v_perp = sqrt(2*mu_i * B0);
+        particles[i].v_total = sqrt(particles[i].v_perp*particles[i].v_perp + particles[i].state[3]*particles[i].state[3]);
+
+        
+    }
+   
+    
+    particle_t* particles_d;
+    cudaMalloc((void**)&particles_d, nparticles * sizeof(particle_t));
+    cudaMemcpy(particles_d, particles, nparticles * sizeof(particle_t), cudaMemcpyHostToDevice);
+
+    double* srange_d;
+    cudaMalloc((void**)&srange_d, 3 * sizeof(double));
+    cudaMemcpy(srange_d, srange_arr, 3 * sizeof(double), cudaMemcpyHostToDevice);
+
+    double* zrange_d;
+    cudaMalloc((void**)&zrange_d, 3 * sizeof(double));
+    cudaMemcpy(zrange_d, zrange_arr, 3 * sizeof(double), cudaMemcpyHostToDevice);
+
+    double* trange_d;
+    cudaMalloc((void**)&trange_d, 3 * sizeof(double));
+    cudaMemcpy(trange_d, trange_arr, 3 * sizeof(double), cudaMemcpyHostToDevice);
+
+
+    double* quadpts_d;
+    cudaMalloc((void**)&quadpts_d, quad_pts.size() * sizeof(double));
+    cudaMemcpy(quadpts_d, quadpts_arr, quad_pts.size() * sizeof(double), cudaMemcpyHostToDevice);
+
+    double* saw_srange_d;
+    cudaMalloc((void**)&saw_srange_d, 3*sizeof(double));
+    cudaMemcpy(saw_srange_d, saw_srange_arr, 3*sizeof(double), cudaMemcpyHostToDevice);
+    
+    int* saw_m_d;
+    cudaMalloc((void**)&saw_m_d, saw_m.size()*sizeof(int));
+    cudaMemcpy(saw_m_d, saw_m_arr, saw_m.size()*sizeof(int), cudaMemcpyHostToDevice);
+    
+    int* saw_n_d;
+    cudaMalloc((void**)&saw_n_d, saw_n.size()*sizeof(int));
+    cudaMemcpy(saw_n_d, saw_n_arr, saw_n.size()*sizeof(int), cudaMemcpyHostToDevice);
+
+    double* saw_phihats_d;
+    cudaMalloc((void**)&saw_phihats_d, saw_phihats.size()*sizeof(double));
+    cudaMemcpy(saw_phihats_d, saw_phihats_arr, saw_phihats.size()*sizeof(double), cudaMemcpyHostToDevice);
+
+    double* thetas_d;
+    cudaMalloc((void**)&thetas_d, thetas.size()*sizeof(double));
+    cudaMemcpy(thetas_d, thetas_arr, thetas.size()*sizeof(double), cudaMemcpyHostToDevice);
+
+    double* omegas_d;
+    cudaMalloc((void**)&omegas_d, omegas.size()*sizeof(double));
+    cudaMemcpy(omegas_d, omegas_arr, omegas.size()*sizeof(double), cudaMemcpyHostToDevice);
+
+
+    int nthreads = 128;
+    int nblks = nparticles / nthreads + 1;
+    std::cout << "starting particle tracing kernel\n";
+
+       
+    cudaEvent_t start, stop;
+    cudaEventCreate(&start);
+    cudaEventCreate(&stop);
+    cudaEventRecord(start);
+
+    double* traj_d;
+    size_t traj_size = (size_t) nparticles * num_planes * MAX_PUNCTURES * 5 * sizeof(double);
+    cudaMalloc(&traj_d, traj_size);
+    cudaMemset(traj_d, 0, traj_size);
+
+    poloidal_poincare_kernel<<<nblks, nthreads>>>(particles_d, srange_d, trange_d, zrange_d, quadpts_d, tmax, m, q, psi0, nparticles, saw_srange_d, saw_m_d, saw_n_d, saw_phihats_d, saw_omega, saw_nharmonics, traj_d, dt_save, tol, MAX_PUNCTURES, thetas_d, omegas_d, num_planes);
+
+    // cudaMemcpy(particles, particles_d, nparticles * sizeof(particle_t), cudaMemcpyDeviceToHost);
+
+    cudaError_t err = cudaGetLastError();
+    cudaDeviceSynchronize();
+    cudaEventRecord(stop);
+    cudaEventSynchronize(stop);
+    float milliseconds = 0;
+    cudaEventElapsedTime(&milliseconds, start, stop);
+    std::cout << "tracing kernels time (ms): " << milliseconds<< "\n";
+    
+    // vector<double> particle_output(7*nparticles);
+    // for(int i=0; i<nparticles; ++i){
+    //     double y1 = particles[i].state[0];
+    //     double y2 = particles[i].state[1];
+    //     double z = particles[i].state[2];
+    //     double v_par = particles[i].state[3];
+
+    //     // last location in Boozer coordinates
+    //     particle_output[7*i] = sqrt(y1*y1 + y2*y2);
+    //     particle_output[7*i + 1] = atan2(y2, y1);
+    //     particle_output[7*i + 2] = z;
+    //     particle_output[7*i + 3] = v_par;
+    //     particle_output[7*i + 4] = particles[i].t;
+    //     particle_output[7*i + 5] = particles[i].step_accept;
+    //     particle_output[7*i + 6] = particles[i].step_attempt;
+    // }
+
+    vector<double> host_traj(nparticles * num_planes * MAX_PUNCTURES * 5);
+    cudaMemcpy(host_traj.data(), traj_d,
+    nparticles * num_planes * MAX_PUNCTURES * 5 * sizeof(double),
+    cudaMemcpyDeviceToHost);
+
+    cudaFree(traj_d);
+    cudaFree(particles_d);
+    delete[] particles;
+
+    return host_traj;
+
+    // return particle_output;
+}
+
+
+
+
 extern "C" vector<double> gpu_tracing_saw(py::array_t<double> quad_pts, py::array_t<double> srange,
         py::array_t<double> trange, py::array_t<double> zrange, py::array_t<double> stz_init, double m, double q, py::array_t<double> vtang, py::array_t<double> mus,
         double tmax, double tol, double psi0, int nparticles, py::array_t<double> saw_srange, py::array_t<int> saw_m, py::array_t<int> saw_n, py::array_t<double> saw_phihats, double saw_omega, int saw_nharmonics, double dt_save){
