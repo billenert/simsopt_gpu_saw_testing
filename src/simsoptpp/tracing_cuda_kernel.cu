@@ -654,7 +654,7 @@ __host__ __device__    void poincare_trace(particle_t& p, double* srange_arr, do
             double curr_quotient = floor((phase_current-zeta)/(2*M_PI));
 
             int dq = (int) ((int) floor((phase_current-zeta)/(2*M_PI))) - ((int) floor((phase_last-zeta)/(2*M_PI)));
-            if (last_quotient != curr_quotient && dq == 1) { // checks if zeta1 - omega * t1 < zeta + 2kpi < zeta_2 - omega t_2
+            if (last_quotient != curr_quotient) { // checks if zeta1 - omega * t1 < zeta + 2kpi < zeta_2 - omega t_2
                 double current_y1 = p.state[0], current_y2 = p.state[1];
                 double current_vpar = p.state[3];
                 
@@ -970,7 +970,7 @@ __host__ __device__    void poloidal_poincare_trace(particle_t& p, double* srang
             double curr_quotient = floor((phase_current-theta)/(2*M_PI));
 
             int dq = (int) ((int) floor((phase_current-theta)/(2*M_PI))) - ((int) floor((phase_last-theta)/(2*M_PI)));
-            if (last_quotient != curr_quotient) { // checks if zeta1 - omega * t1 < zeta + 2kpi < zeta_2 - omega t_2
+            if (last_quotient != curr_quotient && dq == 1) { // checks if zeta1 - omega * t1 < zeta + 2kpi < zeta_2 - omega t_2
                 double current_y1 = p.state[0], current_y2 = p.state[1];
                 double current_vpar = p.state[3];
                 double current_z = p.state[2];
