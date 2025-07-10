@@ -1,13 +1,14 @@
 import simsoptpp as sopp
 from scipy.interpolate import InterpolatedUnivariateSpline
 import numpy as np
-import logging
 from booz_xform import Booz_xform
-from .._core.util import parallel_loop_bounds, align_and_pad, allocate_aligned_and_padded_array
+from .._core.util import (
+    parallel_loop_bounds,
+    align_and_pad,
+    allocate_aligned_and_padded_array,
+)
 import os.path
 import warnings
-
-logger = logging.getLogger(__name__)
 
 __all__ = [
     "BoozerMagneticField",
@@ -16,17 +17,17 @@ __all__ = [
     "InterpolatedBoozerField",
     "ShearAlfvenWave",
     "ShearAlfvenHarmonic",
-    "ShearAlfvenWavesSuperposition"
+    "ShearAlfvenWavesSuperposition",
 ]
 
 try:
     from mpi4py import MPI
 except ImportError as e:
     MPI = None
-    logger.debug(str(e))
+
 
 class BoozerMetric:
-    r'''
+    r"""
      A generic class representing the metric tensor in normalized Boozer coordinates
      :math:`(s, \theta, \zeta)`, where:
 
@@ -75,8 +76,8 @@ class BoozerMetric:
 
          # Compute determinant
          determinant = covariant_metric.det
-    '''
-    
+    """
+
     def __init__(self, gss, gst, gsz, gtt, gtz, gzz):
         self.ss = np.asarray(gss)
         self.st = np.asarray(gst)
@@ -84,29 +85,25 @@ class BoozerMetric:
         self.tt = np.asarray(gtt)
         self.tz = np.asarray(gtz)
         self.zz = np.asarray(gzz)
-        
+
         shape = self.ss.shape
         for g in [self.st, self.sz, self.tt, self.tz, self.zz]:
             if g.shape != shape:
-                raise ValueError(
-                    "All metric components must have the same shape"
-                )
+                raise ValueError("All metric components must have the same shape")
         for g in [self.ss, self.tt, self.zz]:
             if not (g > 0).all():
-                raise ValueError(
-                    "All diagonal metric components must be positive"
-                )
-    
+                raise ValueError("All diagonal metric components must be positive")
+
     def as_matrix(self, idx=None):
         """
         Return the metric tensor as a 3x3 matrix for a given point.
-                
+
         Parameters
         ----------
         idx : int, optional
             Index of the point to get the matrix for.
             If None and there's only one point, return that point's matrix.
-                    
+
         Returns
         -------
             numpy.ndarray
@@ -117,25 +114,30 @@ class BoozerMetric:
                 idx = 0
             else:
                 raise ValueError("Must specify idx for multi-point metric")
-                        
-        return np.array([
-            [self.ss[idx], self.st[idx], self.sz[idx]],
-            [self.st[idx], self.tt[idx], self.tz[idx]],
-            [self.sz[idx], self.tz[idx], self.zz[idx]]
-        ])
-        
+
+        return np.array(
+            [
+                [self.ss[idx], self.st[idx], self.sz[idx]],
+                [self.st[idx], self.tt[idx], self.tz[idx]],
+                [self.sz[idx], self.tz[idx], self.zz[idx]],
+            ]
+        )
+
     def det(self):
         """
         Compute the determinant of the metric tensor at each point.
-        
+
         Returns
         -------
         numpy.ndarray
             Array of determinant values
         """
-        return (self.ss * (self.tt * self.zz - self.tz**2) -
-                self.st * (self.st * self.zz - self.tz * self.sz) +
-                self.sz * (self.st * self.tz - self.sz * self.tt))
+        return (
+            self.ss * (self.tt * self.zz - self.tz**2)
+            - self.st * (self.st * self.zz - self.tz * self.sz)
+            + self.sz * (self.st * self.tz - self.sz * self.tt)
+        )
+
 
 class CovariantBoozerMetric(BoozerMetric):
     r"""
@@ -183,37 +185,49 @@ class CovariantBoozerMetric(BoozerMetric):
     An instance of :class:`ContravariantBoozerMetric` representing the contravariant form of the metric.
     
     """
+
     def to_contravariant(self):
         """
         Converts the covariant metric to its contravariant form by inverting
         the metric tensor.
-        
+
         Returns
         -------
         ContravariantBoozerMetric
             The contravariant form of the metric.
-        
+
         Raises
         -------
         `LinAlgError`: If the matrix inversion fails, due to the matrix being singular.
         """
         inv_matrices = np.zeros((len(self.ss), 6))
         for k in range(len(self.ss)):
-            matrix = np.array([
-                [self.ss[k], self.st[k], self.sz[k]],
-                [self.st[k], self.tt[k], self.tz[k]],
-                [self.sz[k], self.tz[k], self.zz[k]]
-            ])
+            matrix = np.array(
+                [
+                    [self.ss[k], self.st[k], self.sz[k]],
+                    [self.st[k], self.tt[k], self.tz[k]],
+                    [self.sz[k], self.tz[k], self.zz[k]],
+                ]
+            )
             inv_matrix = np.linalg.inv(matrix)
-            inv_matrices[k] = [ # gss, gst, gsz, gtt, gtz, gzz
-                inv_matrix[0,0], inv_matrix[0,1], inv_matrix[0,2],
-                inv_matrix[1,1], inv_matrix[1,2], inv_matrix[2,2]
+            inv_matrices[k] = [  # gss, gst, gsz, gtt, gtz, gzz
+                inv_matrix[0, 0],
+                inv_matrix[0, 1],
+                inv_matrix[0, 2],
+                inv_matrix[1, 1],
+                inv_matrix[1, 2],
+                inv_matrix[2, 2],
             ]
         return ContravariantBoozerMetric(
-                inv_matrices[:,0], inv_matrices[:,1], inv_matrices[:,2],
-                inv_matrices[:,3], inv_matrices[:,4], inv_matrices[:,5]
-            )
-        
+            inv_matrices[:, 0],
+            inv_matrices[:, 1],
+            inv_matrices[:, 2],
+            inv_matrices[:, 3],
+            inv_matrices[:, 4],
+            inv_matrices[:, 5],
+        )
+
+
 class ContravariantBoozerMetric(BoozerMetric):
     r"""
     Represents the contravariant metric tensor for normalized Boozer coordinates
@@ -259,37 +273,49 @@ class ContravariantBoozerMetric(BoozerMetric):
     An instance of :class:`CovariantBoozerMetric` representing the covariant form of the metric.
 
     """
+
     def to_covariant(self):
         """
         Converts the contravariant metric to its covariant form by inverting
         the metric tensor.
-                
+
         Returns
         -------
         CovariantBoozerMetric
             The covariant form of the metric.
-        
+
         Raises
         -------
         `LinAlgError`: If the matrix inversion fails, due to the matrix being singular.
         """
         inv_matrices = np.zeros((len(self.ss), 6))
         for k in range(len(self.ss)):
-            matrix = np.array([
-                [self.ss[k], self.st[k], self.sz[k]],
-                [self.st[k], self.tt[k], self.tz[k]],
-                [self.sz[k], self.tz[k], self.zz[k]]
-            ])
+            matrix = np.array(
+                [
+                    [self.ss[k], self.st[k], self.sz[k]],
+                    [self.st[k], self.tt[k], self.tz[k]],
+                    [self.sz[k], self.tz[k], self.zz[k]],
+                ]
+            )
             inv_matrix = np.linalg.inv(matrix)
-            inv_matrices[k] = [ # gss, gst, gsz, gtt, gtz, gzz
-                inv_matrix[0,0], inv_matrix[0,1], inv_matrix[0,2],
-                inv_matrix[1,1], inv_matrix[1,2], inv_matrix[2,2]
+            inv_matrices[k] = [  # gss, gst, gsz, gtt, gtz, gzz
+                inv_matrix[0, 0],
+                inv_matrix[0, 1],
+                inv_matrix[0, 2],
+                inv_matrix[1, 1],
+                inv_matrix[1, 2],
+                inv_matrix[2, 2],
             ]
         return CovariantBoozerMetric(
-            inv_matrices[:,0], inv_matrices[:,1], inv_matrices[:,2],
-            inv_matrices[:,3], inv_matrices[:,4], inv_matrices[:,5]
+            inv_matrices[:, 0],
+            inv_matrices[:, 1],
+            inv_matrices[:, 2],
+            inv_matrices[:, 3],
+            inv_matrices[:, 4],
+            inv_matrices[:, 5],
         )
-        
+
+
 class BoozerMagneticField(sopp.BoozerMagneticField):
     r"""
     Generic class that represents a magnetic field in Boozer coordinates
@@ -329,16 +355,30 @@ class BoozerMagneticField(sopp.BoozerMagneticField):
         points = ... # points is a (n, 3) numpy array defining :math:`(s,\theta,\zeta)`
         booz.set_points(points)
         modB = bfield.modB() # returns the magnetic field strength at `points`
+
+    Args:
+        psi0: The enclosed toroidal flux divided by 2*pi
+        field_type: A string identifying additional assumptions made on the magnetic field. Can be
+            'vac', 'nok', or ''.
     """
 
-    def __init__(self, psi0):
+    def __init__(self, psi0, field_type="vac", nfp=1, stellsym=True):
         self.psi0 = psi0
+        self.nfp = nfp
+        self.stellsym = stellsym 
+        field_type = field_type.lower()
+        assert field_type in ["vac", "nok", ""]
+        self.field_type = field_type
         sopp.BoozerMagneticField.__init__(self, psi0)
 
     def _modB_derivs_impl(self, modB_derivs):
         self._dmodBds_impl(np.reshape(modB_derivs[:, 0], (len(modB_derivs[:, 0]), 1)))
-        self._dmodBdtheta_impl(np.reshape(modB_derivs[:, 1], (len(modB_derivs[:, 0]), 1)))
-        self._dmodBdzeta_impl(np.reshape(modB_derivs[:, 2], (len(modB_derivs[:, 0]), 1)))
+        self._dmodBdtheta_impl(
+            np.reshape(modB_derivs[:, 1], (len(modB_derivs[:, 0]), 1))
+        )
+        self._dmodBdzeta_impl(
+            np.reshape(modB_derivs[:, 2], (len(modB_derivs[:, 0]), 1))
+        )
 
     def _K_derivs_impl(self, K_derivs):
         self._dKdtheta_impl(np.reshape(K_derivs[:, 0], (len(K_derivs[:, 0]), 1)))
@@ -358,9 +398,9 @@ class BoozerMagneticField(sopp.BoozerMagneticField):
         self._dZds_impl(np.reshape(Z_derivs[:, 0], (len(Z_derivs[:, 0]), 1)))
         self._dZdtheta_impl(np.reshape(Z_derivs[:, 1], (len(Z_derivs[:, 0]), 1)))
         self._dZdzeta_impl(np.reshape(Z_derivs[:, 2], (len(Z_derivs[:, 0]), 1)))
-        
+
     def get_covariant_metric(self):
-        r'''
+        r"""
         Computes and returns the covariant metric tensor for normalized Boozer coordinates
         :math:`(s, \theta, \zeta)`.
 
@@ -377,7 +417,7 @@ class BoozerMagneticField(sopp.BoozerMagneticField):
         -------
         CovariantBoozerMetric
             The covariant metric tensor.
-    
+
         Raises
         ------
         AssertionError
@@ -399,10 +439,12 @@ class BoozerMagneticField(sopp.BoozerMagneticField):
 
             # Convert to matrix form for a single point
             matrix_form = covariant_metric[0].as_matrix
-        '''
+        """
         points = self.get_points_ref()
         s = points[:, 0]
-        assert np.all(s>0), 'Metric is singular on magnetic axis s=0, can not compute. Choose different point.'
+        assert np.all(s > 0), (
+            "Metric is singular on magnetic axis s=0, can not compute. Choose different point."
+        )
         zetas = points[:, 2]
         R = self.R()[:, 0]
         dRdtheta = self.dRdtheta()[:, 0]
@@ -415,41 +457,41 @@ class BoozerMagneticField(sopp.BoozerMagneticField):
         dnudtheta = self.dnudtheta()[:, 0]
         dnudzeta = self.dnudzeta()[:, 0]
         dnuds = self.dnuds()[:, 0]
-    
+
         phi = zetas - nu
         dphids = -dnuds
         dphidtheta = -dnudtheta
         dphidzeta = 1 - dnudzeta
-    
+
         dXdtheta = dRdtheta * np.cos(phi) - R * np.sin(phi) * dphidtheta
         dYdtheta = dRdtheta * np.sin(phi) + R * np.cos(phi) * dphidtheta
         dXds = dRds * np.cos(phi) - R * np.sin(phi) * dphids
         dYds = dRds * np.sin(phi) + R * np.cos(phi) * dphids
         dXdzeta = dRdzeta * np.cos(phi) - R * np.sin(phi) * dphidzeta
         dYdzeta = dRdzeta * np.sin(phi) + R * np.cos(phi) * dphidzeta
-    
+
         gss = dXds**2 + dYds**2 + dZds**2
-        gstheta = dXds*dXdtheta + dYds*dYdtheta + dZds*dZdtheta
-        gszeta = dXds*dXdzeta + dYds*dYdzeta + dZds*dZdzeta
+        gstheta = dXds * dXdtheta + dYds * dYdtheta + dZds * dZdtheta
+        gszeta = dXds * dXdzeta + dYds * dYdzeta + dZds * dZdzeta
         gthetatheta = dXdtheta**2 + dYdtheta**2 + dZdtheta**2
-        gthetazeta = dXdtheta*dXdzeta + dYdtheta*dYdzeta + dZdtheta*dZdzeta
+        gthetazeta = dXdtheta * dXdzeta + dYdtheta * dYdzeta + dZdtheta * dZdzeta
         gzetazeta = dXdzeta**2 + dYdzeta**2 + dZdzeta**2
-    
+
         # Test that determinant of covariant Boozer metric matches inverse Jacobian
         detg = (
-            gss * (gthetatheta*gzetazeta - gthetazeta**2)
-          - gstheta * (gstheta*gzetazeta - gthetazeta*gszeta)
-          + gszeta * (gstheta*gthetazeta - gszeta*gthetatheta)
+            gss * (gthetatheta * gzetazeta - gthetazeta**2)
+            - gstheta * (gstheta * gzetazeta - gthetazeta * gszeta)
+            + gszeta * (gstheta * gthetazeta - gszeta * gthetatheta)
         )
-    
+
         G = self.G()[:, 0]
         I = self.I()[:, 0]
         iota = self.iota()[:, 0]
         B = self.modB()[:, 0]
-        sqrtg = (G + iota * I)*self.psi0/(B*B)
-        assert np.all(detg > 0), 'Metric determinant must be positive'
-        assert np.all(sqrtg > 0), 'Jacobian must be positive'
-        
+        sqrtg = (G + iota * I) * self.psi0 / (B * B)
+        assert np.all(detg > 0), "Metric determinant must be positive"
+        assert np.all(sqrtg > 0), "Jacobian must be positive"
+
         relative_error = np.abs(np.sqrt(detg) - np.abs(sqrtg)) / np.abs(sqrtg)
         max_relative_error_percent = np.max(relative_error) * 100
         if max_relative_error_percent > 0.1:
@@ -458,14 +500,24 @@ class BoozerMagneticField(sopp.BoozerMagneticField):
             s_error = s[max_error_idx]
             theta_error = points[max_error_idx, 1]
             zeta_error = points[max_error_idx, 2]
-            
+
             # Get metric values at error location
-            metric_at_error = np.array([
-                [gss[max_error_idx], gstheta[max_error_idx], gszeta[max_error_idx]],
-                [gstheta[max_error_idx], gthetatheta[max_error_idx], gthetazeta[max_error_idx]],
-                [gszeta[max_error_idx], gthetazeta[max_error_idx], gzetazeta[max_error_idx]]
-            ])
-            
+            metric_at_error = np.array(
+                [
+                    [gss[max_error_idx], gstheta[max_error_idx], gszeta[max_error_idx]],
+                    [
+                        gstheta[max_error_idx],
+                        gthetatheta[max_error_idx],
+                        gthetazeta[max_error_idx],
+                    ],
+                    [
+                        gszeta[max_error_idx],
+                        gthetazeta[max_error_idx],
+                        gzetazeta[max_error_idx],
+                    ],
+                ]
+            )
+
             warnings.warn(
                 f"\nLarge maximum relative error ({max_relative_error_percent:.2f}%) between "
                 f"metric determinant and Jacobian at:\n"
@@ -473,11 +525,11 @@ class BoozerMagneticField(sopp.BoozerMagneticField):
                 f"  sqrt(detg) = {np.sqrt(detg[max_error_idx]):.6e}\n"
                 f"  sqrtg     = {sqrtg[max_error_idx]:.6e}\n"
                 f"Metric tensor at this point:\n"
-                f"  [[ {metric_at_error[0,0]:.6e}  {metric_at_error[0,1]:.6e}  {metric_at_error[0,2]:.6e} ]\n"
-                f"   [ {metric_at_error[1,0]:.6e}  {metric_at_error[1,1]:.6e}  {metric_at_error[1,2]:.6e} ]\n"
-                f"   [ {metric_at_error[2,0]:.6e}  {metric_at_error[2,1]:.6e}  {metric_at_error[2,2]:.6e} ]]\n"
+                f"  [[ {metric_at_error[0, 0]:.6e}  {metric_at_error[0, 1]:.6e}  {metric_at_error[0, 2]:.6e} ]\n"
+                f"   [ {metric_at_error[1, 0]:.6e}  {metric_at_error[1, 1]:.6e}  {metric_at_error[1, 2]:.6e} ]\n"
+                f"   [ {metric_at_error[2, 0]:.6e}  {metric_at_error[2, 1]:.6e}  {metric_at_error[2, 2]:.6e} ]]\n"
                 "exceeds 0.1% tolerance.",
-                RuntimeWarning
+                RuntimeWarning,
             )
 
         return CovariantBoozerMetric(
@@ -486,47 +538,48 @@ class BoozerMagneticField(sopp.BoozerMagneticField):
             gsz=gszeta,
             gtt=gthetatheta,
             gtz=gthetazeta,
-            gzz=gzetazeta
-            )
+            gzz=gzetazeta,
+        )
 
     def get_contravariant_metric(self):
-        r'''
+        r"""
         Computes and returns the contravariant metric tensor for normalized Boozer coordinates
         :math:`(s, \theta, \zeta)`.
-    
-        In normalized Boozer coordinates, the contravariant metric tensor defines the local geometry 
-        of space with respect to the contravariant basis vectors 
+
+        In normalized Boozer coordinates, the contravariant metric tensor defines the local geometry
+        of space with respect to the contravariant basis vectors
         :math:`(\partial / \partial s, \partial / \partial \theta, \partial / \partial \zeta)`.
-        
+
         The contravariant metric is computed by inverting the covariant metric tensor.
-    
+
         Returns
         -------
         ContravariantBoozerMetric
             The contravariant metric tensor.
-    
+
         Raises
         ------
         AssertionError
             If the metric is singular on the magnetic axis s=0.
         LinAlgError
             If the covariant metric tensor cannot be inverted.
-    
+
         **Usage Example:**
-    
+
         .. code-block:: python
-    
+
             # Given a BoozerMagneticField instance named `bfield`
             contravariant_metric = bfield.get_contravariant_metric()
-    
+
             # Access specific metric components
             gss_component = contravariant_metric.ss
             gst_component = contravariant_metric.st
-    
+
             # Convert to matrix form for a single point
             matrix_form = contravariant_metric[0].as_matrix
-        '''
+        """
         return self.get_covariant_metric().to_contravariant()
+
 
 class BoozerAnalytic(BoozerMagneticField):
     r"""
@@ -571,15 +624,31 @@ class BoozerAnalytic(BoozerMagneticField):
         m: poloidal mode bumber for the perturbation
     """
 
-    def __init__(self, etabar, B0, N, G0, psi0, iota0, Bbar=1., I0=0., G1=0.,
-                 I1=0., K1=0., iota1=0., B0z=[0.], n=[1], m=[2]):
-        assert(len(B0z)==len(n))
-        assert(len(m)==len(n))
+    def __init__(
+        self,
+        etabar,
+        B0,
+        N,
+        G0,
+        psi0,
+        iota0,
+        Bbar=1.0,
+        I0=0.0,
+        G1=0.0,
+        I1=0.0,
+        K1=0.0,
+        iota1=0.0,
+        B0z=[0.0],
+        n=[1],
+        m=[2],
+    ):
+        assert len(B0z) == len(n)
+        assert len(m) == len(n)
         self.etabar = etabar
         self.B0 = B0
         self.B0z = np.array(B0z)
-        self.m = np.array(m,dtype='float')
-        self.n = np.array(n,dtype='float')
+        self.m = np.array(m, dtype="float")
+        self.n = np.array(n, dtype="float")
         self.Bbar = Bbar
         self.N = N
         self.G0 = G0
@@ -590,7 +659,16 @@ class BoozerAnalytic(BoozerMagneticField):
         self.iota0 = iota0
         self.psi0 = psi0
         self.iota1 = iota1
-        BoozerMagneticField.__init__(self, psi0)
+        self.set_field_type()
+        BoozerMagneticField.__init__(self, psi0, self.field_type)
+
+    def set_field_type(self):
+        if self.I0 == 0 and self.I1 == 0 and self.G1 == 0 and self.K1 == 0:
+            self.field_type = "vac"
+        elif self.K1 == 0:
+            self.field_type = "nok"
+        else:
+            self.field_type = ""
 
     def set_etabar(self, etabar):
         self.etabar = etabar
@@ -612,15 +690,19 @@ class BoozerAnalytic(BoozerMagneticField):
 
     def set_I0(self, I0):
         self.I0 = I0
+        self.set_field_type()
 
     def set_G1(self, G1):
         self.G1 = G1
+        self.set_field_type()
 
     def set_I1(self, I1):
         self.I1 = I1
+        self.set_field_type()
 
     def set_K1(self, K1):
         self.K1 = K1
+        self.set_field_type()
 
     def set_iota0(self, iota0):
         self.iota0 = iota0
@@ -634,12 +716,12 @@ class BoozerAnalytic(BoozerMagneticField):
     def _psip_impl(self, psip):
         points = self.get_points_ref()
         s = points[:, 0]
-        psip[:, 0] = self.psi0*(s*self.iota0 + s**2 * self.iota1/2)
+        psip[:, 0] = self.psi0 * (s * self.iota0 + s**2 * self.iota1 / 2)
 
     def _iota_impl(self, iota):
         points = self.get_points_ref()
         s = points[:, 0]
-        iota[:, 0] = self.iota0 + self.iota1*s
+        iota[:, 0] = self.iota0 + self.iota1 * s
 
     def _diotads_impl(self, diotads):
         diotads[:, 0] = self.iota1
@@ -647,7 +729,7 @@ class BoozerAnalytic(BoozerMagneticField):
     def _G_impl(self, G):
         points = self.get_points_ref()
         s = points[:, 0]
-        G[:, 0] = self.G0 + s*self.G1
+        G[:, 0] = self.G0 + s * self.G1
 
     def _dGds_impl(self, dGds):
         dGds[:, 0] = self.G1
@@ -655,7 +737,7 @@ class BoozerAnalytic(BoozerMagneticField):
     def _I_impl(self, I):
         points = self.get_points_ref()
         s = points[:, 0]
-        I[:, 0] = self.I0 + s*self.I1
+        I[:, 0] = self.I0 + s * self.I1
 
     def _dIds_impl(self, dIds):
         dIds[:, 0] = self.I1
@@ -665,22 +747,32 @@ class BoozerAnalytic(BoozerMagneticField):
         s = points[:, 0]
         thetas = points[:, 1]
         zetas = points[:, 2]
-        psi = s*self.psi0
-        r = np.sqrt(np.abs(2*psi/self.Bbar))
-        modB[:, 0] = self.B0*(1 + self.etabar*r*np.cos(thetas-self.N*zetas)) + np.sum(self.B0z[:,None]*np.cos(self.m[:,None]*thetas[None,:] - self.n[:,None]*self.N*zetas[None,:]))
+        psi = s * self.psi0
+        r = np.sqrt(np.abs(2 * psi / self.Bbar))
+        modB[:, 0] = self.B0 * (
+            1 + self.etabar * r * np.cos(thetas - self.N * zetas)
+        ) + np.sum(
+            self.B0z[:, None]
+            * np.cos(
+                self.m[:, None] * thetas[None, :]
+                - self.n[:, None] * self.N * zetas[None, :]
+            )
+        )
 
     def _dmodBds_impl(self, dmodBds):
         points = self.get_points_ref()
         s = points[:, 0]
         thetas = points[:, 1]
         zetas = points[:, 2]
-        psi = s*self.psi0
+        psi = s * self.psi0
         # drds = np.zeros_like(s)
-        r = np.sqrt(np.abs(2*psi/self.Bbar))
+        r = np.sqrt(np.abs(2 * psi / self.Bbar))
         # drds[s!=0] = 0.5*r[s!=0]*self.psi0/psi[s!=0]
-        if self.etabar!=0:
-            drds = 0.5*r*self.psi0/psi
-            dmodBds[:, 0] = self.B0*self.etabar*drds*np.cos(thetas-self.N*zetas)
+        if self.etabar != 0:
+            drds = 0.5 * r * self.psi0 / psi
+            dmodBds[:, 0] = (
+                self.B0 * self.etabar * drds * np.cos(thetas - self.N * zetas)
+            )
         else:
             dmodBds[:, 0] = 0
 
@@ -689,45 +781,64 @@ class BoozerAnalytic(BoozerMagneticField):
         s = points[:, 0]
         thetas = points[:, 1]
         zetas = points[:, 2]
-        psi = s*self.psi0
-        r = np.sqrt(np.abs(2*psi/self.Bbar))
-        dmodBdtheta[:, 0] = -self.B0*self.etabar*r*np.sin(thetas-self.N*zetas) - np.sum(self.B0z[:,None]*self.m[:,None]*np.sin(self.m[:,None]*thetas[None,:] - self.n[:,None]*self.N*zetas[None,:]))
+        psi = s * self.psi0
+        r = np.sqrt(np.abs(2 * psi / self.Bbar))
+        dmodBdtheta[:, 0] = -self.B0 * self.etabar * r * np.sin(
+            thetas - self.N * zetas
+        ) - np.sum(
+            self.B0z[:, None]
+            * self.m[:, None]
+            * np.sin(
+                self.m[:, None] * thetas[None, :]
+                - self.n[:, None] * self.N * zetas[None, :]
+            )
+        )
 
     def _dmodBdzeta_impl(self, dmodBdzeta):
         points = self.get_points_ref()
         s = points[:, 0]
         thetas = points[:, 1]
         zetas = points[:, 2]
-        psi = s*self.psi0
-        r = np.sqrt(np.abs(2*psi/self.Bbar))
-        dmodBdzeta[:, 0] = self.N*self.B0*self.etabar*r*np.sin(thetas-self.N*zetas) + np.sum(self.B0z[:,None]*self.n[:,None]*self.N*np.sin(self.m[:,None]*thetas[None,:] - self.n[:,None]*self.N*zetas[None,:]))
+        psi = s * self.psi0
+        r = np.sqrt(np.abs(2 * psi / self.Bbar))
+        dmodBdzeta[:, 0] = self.N * self.B0 * self.etabar * r * np.sin(
+            thetas - self.N * zetas
+        ) + np.sum(
+            self.B0z[:, None]
+            * self.n[:, None]
+            * self.N
+            * np.sin(
+                self.m[:, None] * thetas[None, :]
+                - self.n[:, None] * self.N * zetas[None, :]
+            )
+        )
 
     def _K_impl(self, K):
         points = self.get_points_ref()
         s = points[:, 0]
         thetas = points[:, 1]
         zetas = points[:, 2]
-        psi = s*self.psi0
-        r = np.sqrt(np.abs(2*psi/self.Bbar))
-        K[:, 0] = self.K1*r*np.sin(thetas-self.N*zetas)
+        psi = s * self.psi0
+        r = np.sqrt(np.abs(2 * psi / self.Bbar))
+        K[:, 0] = self.K1 * r * np.sin(thetas - self.N * zetas)
 
     def _dKdtheta_impl(self, dKdtheta):
         points = self.get_points_ref()
         s = points[:, 0]
         thetas = points[:, 1]
         zetas = points[:, 2]
-        psi = s*self.psi0
-        r = np.sqrt(np.abs(2*psi/self.Bbar))
-        dKdtheta[:, 0] = self.K1*r*np.cos(thetas-self.N*zetas)
+        psi = s * self.psi0
+        r = np.sqrt(np.abs(2 * psi / self.Bbar))
+        dKdtheta[:, 0] = self.K1 * r * np.cos(thetas - self.N * zetas)
 
     def _dKdzeta_impl(self, dKdzeta):
         points = self.get_points_ref()
         s = points[:, 0]
         thetas = points[:, 1]
         zetas = points[:, 2]
-        psi = s*self.psi0
-        r = np.sqrt(np.abs(2*psi/self.Bbar))
-        dKdzeta[:, 0] = -self.N*self.K1*r*np.cos(thetas-self.N*zetas)
+        psi = s * self.psi0
+        r = np.sqrt(np.abs(2 * psi / self.Bbar))
+        dKdzeta[:, 0] = -self.N * self.K1 * r * np.cos(thetas - self.N * zetas)
 
 
 class BoozerRadialInterpolant(BoozerMagneticField):
@@ -2148,19 +2259,40 @@ class BoozerRadialInterpolant(BoozerMagneticField):
 
         return _f
 
+
 class InterpolatedBoozerField(sopp.InterpolatedBoozerField, BoozerMagneticField):
     r"""
     This field takes an existing :class:`BoozerMagneticField` and interpolates it on a
-    regular grid in :math:`s,\theta,\zeta`. This resulting interpolant can then
-    be evaluated very quickly. This is modeled after :class:`InterpolatedField`.
+    regular grid in :math:`s,\theta,\zeta`. the field is represented as a piecewise 
+    polynomial in (s,theta,zeta) of a given degree. The number of nodes in each direction
+    are defined by ns_interp, ntheta_interp, and nzeta_interp. It is recommended to use 
+    this field representation in the tracing loop due to its speed in comparison to 
+    :class:`BoozerRadialInterpolant`. 
     """
 
-    def __init__(self, field, degree, srange, thetarange, zetarange, extrapolate=True, nfp=1, stellsym=True, initialize=[]):
+    def __init__(
+        self,
+        field,
+        degree,
+        srange=None,
+        thetarange=None,
+        zetarange=None,
+        ns_interp=48,
+        ntheta_interp=48,
+        nzeta_interp=48,
+        extrapolate=True,
+        nfp=None,
+        stellsym=None,
+        initialize=[],
+    ):
         r"""
         Args:
             field: the underlying :class:`simsopt.field.boozermagneticfield.
                 BoozerMagneticField` to be interpolated.
             degree: the degree of the piecewise polynomial interpolant.
+            ns_interp: number of grid points in the :math:`s` direction.
+            ntheta_interp: number of grid points in the :math:`\theta` direction.
+            nzeta_interp: number of grid points in the :math:`\zeta` direction
             srange: a 3-tuple of the form ``(smin, smax, ns)``. This mean that
                 the interval ``[smin, smax]`` is split into ``ns`` many subintervals.
             thetarange: a 3-tuple of the form ``(thetamin, thetamax, ntheta)``.
@@ -2172,24 +2304,107 @@ class InterpolatedBoozerField(sopp.InterpolatedBoozerField, BoozerMagneticField)
             nfp: Whether to exploit rotational symmetry. In this case any toroidal angle
                  is always mapped into the interval :math:`[0, 2\pi/\mathrm{nfp})`,
                  hence it makes sense to use ``zetamin=0`` and
-                 ``zetamax=2*np.pi/nfp``.
+                 ``zetamax=2*np.pi/nfp``. By default this is obtained from field.nfp.
             stellsym: Whether to exploit stellarator symmetry. In this case
                       ``theta`` is always mapped to the interval :math:`[0, \pi]`,
-                      hence it makes sense to use ``thetamin=0`` and ``thetamax=np.pi``.
-            initialize: A list of strings, each of which is the name of a 
+                      hence it makes sense to use ``thetamin=0`` and ``thetamax=np.pi``. By default
+                      this is obtained from field.stellsym. 
+            initialize: A list of strings, each of which is the name of a
                 field quantitty, e.g., `modB`, to be initialized when the interpolant is created.
+                By default, this list is determined by field.field_type.
         """
-        BoozerMagneticField.__init__(self, field.psi0)
-        if (np.any(np.asarray(thetarange[0:2]) < 0) or np.any(np.asarray(thetarange[0:2]) > 2*np.pi)):
-            raise ValueError("thetamin and thetamax must be in [0,2*pi]")
-        if (np.any(np.asarray(zetarange[0:2]) < 0) or np.any(np.asarray(zetarange[0:2]) > 2*np.pi)):
-            raise ValueError("zetamin and zetamax must be in [0,2*pi]")
-        if stellsym and (np.any(np.asarray(thetarange[0:2]) < 0) or np.any(np.asarray(thetarange[0:2]) > np.pi)):
-            logger.warning(fr"Sure about thetarange=[{thetarange[0]},{thetarange[1]}]? When exploiting stellarator symmetry, the interpolant is only evaluated for theta in [0,pi].")
-        if nfp > 1 and (np.any(np.asarray(zetarange[0:2]) < 0) or np.any(np.asarray(zetarange[0:2]) > 2*np.pi/nfp)):
-            logger.warning(fr"Sure about zetarange=[{zetarange[0]},{zetarange[1]}]? When exploiting rotational symmetry, the interpolant is only evaluated for zeta in [0,2\pi/nfp].")
+        field_type = field.field_type.lower()
+        assert field_type in ["", "vac", "nok"]
+        self.field_type = field.field_type
 
-        sopp.InterpolatedBoozerField.__init__(self, field, degree, srange, thetarange, zetarange, extrapolate, nfp, stellsym)
+        initialize = sorted(initialize)
+        initialize_vac = sorted(["modB", "psip", "G", "iota", "modB_derivs"])
+        initialize_nok = sorted(
+            ["modB", "psip", "G", "I", "dGds", "dIds", "iota", "modB_derivs"]
+        )
+        initialize_gen = sorted(
+            [
+                "modB",
+                "psip",
+                "G",
+                "I",
+                "dGds",
+                "dIds",
+                "iota",
+                "modB_derivs",
+                "K",
+                "K_derivs",
+            ]
+        )
+        if initialize == []:
+            if field_type == "vac":
+                initialize = initialize_vac
+            elif field_type == "nok":
+                initialize = initialize_nok
+            elif field_type == "":
+                initialize = initialize_gen
+        else:
+            if (
+                (field_type == "vac" and (initialize != initialize_vac))
+                or (field_type == "nok" and (initialize != initialize_nok))
+                or (field_type == "" and (initialize != initialize_gen))
+            ):
+                warnings.warn(
+                    f"initialize list does not match field_type={field_type}. Proceeding with initialize={initialize}",
+                    RuntimeWarning,
+                )
+        if nfp is None:
+            nfp = field.nfp
+        if stellsym is None:
+            stellsym = field.stellsym
+
+        if srange is None:
+            srange = (0, 1, ns_interp)
+        if thetarange is None:
+            if stellsym:
+                thetarange = (0, np.pi, ntheta_interp)
+            else:
+                thetarange = (0, 2 * np.pi, ntheta_interp)
+        if zetarange is None:
+            zetarange = (0, 2 * np.pi / nfp, nzeta_interp)
+
+        BoozerMagneticField.__init__(self, field.psi0, self.field_type, nfp)
+        if np.any(np.asarray(thetarange[0:2]) < 0) or np.any(
+            np.asarray(thetarange[0:2]) > 2 * np.pi
+        ):
+            raise ValueError("thetamin and thetamax must be in [0,2*pi]")
+        if np.any(np.asarray(zetarange[0:2]) < 0) or np.any(
+            np.asarray(zetarange[0:2]) > 2 * np.pi
+        ):
+            raise ValueError("zetamin and zetamax must be in [0,2*pi]")
+        if stellsym and (
+            np.any(np.asarray(thetarange[0:2]) < 0)
+            or np.any(np.asarray(thetarange[0:2]) > np.pi)
+        ):
+            warnings.warn(
+                rf"Sure about thetarange=[{thetarange[0]},{thetarange[1]}]? When exploiting stellarator symmetry, the interpolant is only evaluated for theta in [0,pi].",
+                RuntimeWarning,
+            )
+        if nfp > 1 and (
+            np.any(np.asarray(zetarange[0:2]) < 0)
+            or np.any(np.asarray(zetarange[0:2]) > 2 * np.pi / nfp)
+        ):
+            warnings.warn(
+                rf"Sure about zetarange=[{zetarange[0]},{zetarange[1]}]? When exploiting rotational symmetry, the interpolant is only evaluated for zeta in [0,2\pi/nfp].",
+                RuntimeWarning,
+            )
+
+        sopp.InterpolatedBoozerField.__init__(
+            self,
+            field,
+            degree,
+            srange,
+            thetarange,
+            zetarange,
+            extrapolate,
+            nfp,
+            stellsym,
+        )
 
         if initialize:
             for item in initialize:
@@ -2198,78 +2413,80 @@ class InterpolatedBoozerField(sopp.InterpolatedBoozerField, BoozerMagneticField)
 
 class ShearAlfvenWave(sopp.ShearAlfvenWave):
     r"""
-        Class representing a generic Shear Alfvén Wave (SAW).
+    Class representing a generic Shear Alfvén Wave (SAW).
 
-        The Shear Alfvén Wave (SAW) propagates in an equilibrium magnetic field `B0` and is represented by
-        the scalar potential `Phi` and vector potential parameter `alpha`. The SAW magnetic field is defined
-        as the curl of `(alpha * B0)`.
+    The Shear Alfvén Wave (SAW) propagates in an equilibrium magnetic field `B0` and is represented by
+    the scalar potential `Phi` and vector potential parameter `alpha`. The SAW magnetic field is defined
+    as the curl of `(alpha * B0)`.
 
-        This class provides a framework for representing SAWs in Boozer coordinates with attributes for computing
-        the scalar and vector potentials and their derivatives: `Phi`, `dPhidpsi`, `Phidot`, etc.
+    This class provides a framework for representing SAWs in Boozer coordinates with attributes for computing
+    the scalar and vector potentials and their derivatives: `Phi`, `dPhidpsi`, `Phidot`, etc.
 
-        This class is designed to be a base class that can be extended to implement specific behaviors or
-        variations of Shear Alfvén Waves.
+    This class is designed to be a base class that can be extended to implement specific behaviors or
+    variations of Shear Alfvén Waves.
 
-        The usage of :class:`ShearAlfvenWave` is as follows:
+    The usage of :class:`ShearAlfvenWave` is as follows:
 
-        .. code-block:: python
+    .. code-block:: python
 
-            # Create an instance of a Boozer magnetic field
-            B0 = sopp.BoozerAnalytic(etabar, B0, N, G0, psi0, iota0)
+        # Create an instance of a Boozer magnetic field
+        B0 = sopp.BoozerAnalytic(etabar, B0, N, G0, psi0, iota0)
 
-            # Create an instance of ShearAlfvenWave using the equilibrium field B0
-            saw = ShearAlfvenWave(B0)
+        # Create an instance of ShearAlfvenWave using the equilibrium field B0
+        saw = ShearAlfvenWave(B0)
 
-            # Points is a (n, 4) numpy array defining :math:`(s, \theta, \zeta, \text{time})`
-            points = ...
-            saw.set_points(points)
+        # Points is a (n, 4) numpy array defining :math:`(s, \theta, \zeta, \text{time})`
+        points = ...
+        saw.set_points(points)
 
-            # Compute scalar potential Phi at the specified points
-            Phi = saw.Phi()
+        # Compute scalar potential Phi at the specified points
+        Phi = saw.Phi()
 
-        Attributes:
-        ----------
-        Phi : function
-            Computes the scalar potential `Phi` of the shear Alfvén wave perturbation.
-        dPhidpsi : function
-            Computes the derivative of the scalar potential `Phi` with respect to `psi`.
-        Phidot : function
-            Computes the time derivative of the scalar potential `Phi`.
-        dPhidtheta : function
-            Computes the derivative of the scalar potential `Phi` with respect to `theta`.
-        dPhidzeta : function
-            Computes the derivative of the scalar potential `Phi` with respect to `zeta`.
-        alpha : function
-            Computes the vector potential parameter `alpha`.
-        alphadot : function
-            Computes the time derivative of the vector potential parameter `alpha`.
-        dalphadtheta : function
-            Computes the derivative of the vector potential parameter `alpha` with respect to `theta`.
-        dalphadpsi : function
-            Computes the derivative of the vector potential parameter `alpha` with respect to `psi`.
-        dalphadzeta : function
-            Computes the derivative of the vector potential parameter `alpha` with respect to `zeta`.
+    Attributes:
+    ----------
+    Phi : function
+        Computes the scalar potential `Phi` of the shear Alfvén wave perturbation.
+    dPhidpsi : function
+        Computes the derivative of the scalar potential `Phi` with respect to `psi`.
+    Phidot : function
+        Computes the time derivative of the scalar potential `Phi`.
+    dPhidtheta : function
+        Computes the derivative of the scalar potential `Phi` with respect to `theta`.
+    dPhidzeta : function
+        Computes the derivative of the scalar potential `Phi` with respect to `zeta`.
+    alpha : function
+        Computes the vector potential parameter `alpha`.
+    alphadot : function
+        Computes the time derivative of the vector potential parameter `alpha`.
+    dalphadtheta : function
+        Computes the derivative of the vector potential parameter `alpha` with respect to `theta`.
+    dalphadpsi : function
+        Computes the derivative of the vector potential parameter `alpha` with respect to `psi`.
+    dalphadzeta : function
+        Computes the derivative of the vector potential parameter `alpha` with respect to `zeta`.
 
-        For further details, see Paul et al., JPP (2023; 89(5): 905890515. doi:10.1017/S0022377823001095)
-        and references therein.
+    For further details, see Paul et al., JPP (2023; 89(5): 905890515. doi:10.1017/S0022377823001095)
+    and references therein.
 
-        Parameters
-        ----------
-        B0 : BoozerMagneticField
-            Instance of a magnetic field in Boozer coordinates that provides the equilibrium field `B0`.
+    Parameters
+    ----------
+    B0 : BoozerMagneticField
+        Instance of a magnetic field in Boozer coordinates that provides the equilibrium field `B0`.
 
-        Raises
-        ------
-        TypeError
-            If `B0` is not an instance of `BoozerMagneticField`.
+    Raises
+    ------
+    TypeError
+        If `B0` is not an instance of `BoozerMagneticField`.
 
-        """
+    """
+
     def __init__(self, B0):
         if not isinstance(B0, sopp.BoozerMagneticField):
             raise TypeError("B0 must be an instance of BoozerMagneticField.")
 
         # Call the constructor of the base C++ class
         super().__init__(B0)
+
 
 class ShearAlfvenHarmonic(sopp.ShearAlfvenHarmonic):
     r"""
@@ -2300,8 +2517,16 @@ class ShearAlfvenHarmonic(sopp.ShearAlfvenHarmonic):
     phase : float
         Phase of the harmonic wave.
     """
-    def __init__(self, Phihat_value_or_tuple, Phim: int, Phin: int, omega: float,
-                 phase: float, B0: sopp.BoozerMagneticField):
+
+    def __init__(
+        self,
+        Phihat_value_or_tuple,
+        Phim: int,
+        Phin: int,
+        omega: float,
+        phase: float,
+        B0: sopp.BoozerMagneticField,
+    ):
         """
         Initialize a single harmonic Shear Alfvén Wave (SAW) in a given equilibrium magnetic field.
 
@@ -2338,13 +2563,17 @@ class ShearAlfvenHarmonic(sopp.ShearAlfvenHarmonic):
         # Determine how to initialize Phihat
         if isinstance(Phihat_value_or_tuple, tuple):
             if len(Phihat_value_or_tuple) != 2:
-                raise TypeError("Phihat_value_or_tuple must be a tuple of two lists: (s_values, Phihat_values).")
+                raise TypeError(
+                    "Phihat_value_or_tuple must be a tuple of two lists: (s_values, Phihat_values)."
+                )
 
             s_vals, Phihat_vals = Phihat_value_or_tuple
 
             # Ensure both s_vals and Phihat_vals are lists of floats
-            if not (all(isinstance(x, float) for x in s_vals) and
-                    all(isinstance(x, float) for x in Phihat_vals)):
+            if not (
+                all(isinstance(x, float) for x in s_vals)
+                and all(isinstance(x, float) for x in Phihat_vals)
+            ):
                 raise TypeError("s_values and Phihat_values must be lists of floats.")
 
             phihat_object = sopp.Phihat(s_vals, Phihat_vals)
@@ -2355,10 +2584,13 @@ class ShearAlfvenHarmonic(sopp.ShearAlfvenHarmonic):
                 # If Phihat_value_or_tuple can be converted to a float, use it as a constant value
                 phihat_object = sopp.Phihat([0, 1], [Phihat_value, Phihat_value])
             except (TypeError, ValueError):
-                raise TypeError("Phihat_value_or_tuple must be either a float, an int, or a tuple of (s_values, Phihat_values).")
+                raise TypeError(
+                    "Phihat_value_or_tuple must be either a float, an int, or a tuple of (s_values, Phihat_values)."
+                )
 
         # Call the constructor of the base C++ class
         super().__init__(phihat_object, Phim, Phin, omega, phase, B0)
+
 
 class ShearAlfvenWavesSuperposition(sopp.ShearAlfvenWavesSuperposition):
     r"""
@@ -2403,8 +2635,11 @@ class ShearAlfvenWavesSuperposition(sopp.ShearAlfvenWavesSuperposition):
         superposition.set_points(points)
 
     """
+
     def __init__(self, SAWs: list):
-        if not isinstance(SAWs, list) or not all(isinstance(SAW, sopp.ShearAlfvenWave) for SAW in SAWs):
+        if not isinstance(SAWs, list) or not all(
+            isinstance(SAW, sopp.ShearAlfvenWave) for SAW in SAWs
+        ):
             raise TypeError("SAWs must be a list of ShearAlfvenWave objects.")
 
         if len(SAWs) == 0:
