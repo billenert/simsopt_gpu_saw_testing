@@ -586,70 +586,69 @@ protected:
   void _Phi_impl(Array2& Phi) override {
     Phi.fill(0.0);
     for (const auto& wave : waves) {
-      Phi += wave->Phi();
-    }
+      xt::noalias(Phi) += wave->Phi();    }
   }
   
   void _dPhidpsi_impl(Array2& dPhidpsi) override {
     dPhidpsi.fill(0.0);
     for (const auto& wave : waves) {
-      dPhidpsi += wave->dPhidpsi();
+      xt::noalias(dPhidpsi) += wave->dPhidpsi();
     }
   }
   
   void _dPhidtheta_impl(Array2& dPhidtheta) override {
     dPhidtheta.fill(0.0);
     for (const auto& wave : waves) {
-      dPhidtheta += wave->dPhidtheta();
+      xt::noalias(dPhidtheta) += wave->dPhidtheta();
     }
   }
   
   void _dPhidzeta_impl(Array2& dPhidzeta) override {
     dPhidzeta.fill(0.0);
     for (const auto& wave : waves) {
-      dPhidzeta += wave->dPhidzeta();
+      xt::noalias(dPhidzeta) += wave->dPhidzeta();
     }
   }
   
   void _Phidot_impl(Array2& Phidot) override {
     Phidot.fill(0.0);
       for (const auto& wave : waves) {
-      Phidot += wave->Phidot();
+        xt::noalias(Phidot) += wave->Phidot();
     }
   }
   
   void _alpha_impl(Array2& alpha) override {
     alpha.fill(0.0);
     for (const auto& wave : waves) {
-      alpha += wave->alpha();
+      xt::noalias(alpha) += wave->alpha();
     }
   }
   
   void _dalphadpsi_impl(Array2& dalphadpsi) override {
     dalphadpsi.fill(0.0);
     for (const auto& wave : waves) {
-      dalphadpsi += wave->dalphadpsi();
+      xt::noalias(dalphadpsi) += wave->dalphadpsi();
     }
   }
   
   void _dalphadtheta_impl(Array2& dalphadtheta) override {
     dalphadtheta.fill(0.0);
     for (const auto& wave : waves) {
-      dalphadtheta += wave->dalphadtheta();
+      xt::noalias(dalphadtheta) += wave->dalphadtheta();
     }
   }
   
   void _dalphadzeta_impl(Array2& dalphadzeta) override {
     dalphadzeta.fill(0.0);
     for (const auto& wave : waves) {
-      dalphadzeta += wave->dalphadzeta();
+      xt::noalias(dalphadzeta) += wave->dalphadzeta();
     }
   }
   
   void _alphadot_impl(Array2& alphadot) override {
     alphadot.fill(0.0);
     for (const auto& wave : waves) {
-      alphadot += wave->alphadot();
+      xt::noalias(alphadot) += wave->alphadot();
     }
   }
 };
