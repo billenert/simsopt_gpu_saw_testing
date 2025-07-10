@@ -942,11 +942,14 @@ __host__ __device__    void poloidal_poincare_trace(particle_t& p, double* srang
         double last_vpar = p.state[3];
         double last_tnow = p.t;
         
+        
 
         for(int k=0; k<7; ++k){
             build_state(p, k, srange_arr, trange_arr, zrange_arr);
             calc_derivs(p, p.derivs + 6*k, srange_arr, trange_arr, zrange_arr, quadpts_arr, m, q, p.mu, psi0, saw_srange_arr, saw_m_arr, saw_n_arr, saw_phihats_arr, saw_omega, saw_nharmonics);
         }
+
+
 
         int old_accept = p.step_accept;
 
@@ -957,6 +960,14 @@ __host__ __device__    void poloidal_poincare_trace(particle_t& p, double* srang
         double current_tnow = p.t;
         // check hitting for each current plane
         bool accepted = (p.step_accept > old_accept);
+
+        double x   = p.state[0];
+        double y   = p.state[1];
+        double xdot = p.derivs[0];
+        double ydot = p.derivs[1];
+        double s2   = x*x + y*y;
+        double thetadot = (x*ydot - y*xdot) / s2;
+
 
         if(!accepted) continue;
         for(int curr_plane = 0; curr_plane < num_planes; curr_plane ++) {
@@ -970,7 +981,8 @@ __host__ __device__    void poloidal_poincare_trace(particle_t& p, double* srang
             double curr_quotient = floor((phase_current-theta)/(2*M_PI));
 
             int dq = (int) ((int) floor((phase_current-theta)/(2*M_PI))) - ((int) floor((phase_last-theta)/(2*M_PI)));
-            if (last_quotient != curr_quotient && dq == 1) { // checks if zeta1 - omega * t1 < zeta + 2kpi < zeta_2 - omega t_2
+            if (last_quotient != curr_quotient) { // checks if zeta1 - omega * t1 < zeta + 2kpi < zeta_2 - omega t_2
+                if(thetadot * dq < 0) continue;
                 double current_y1 = p.state[0], current_y2 = p.state[1];
                 double current_vpar = p.state[3];
                 double current_z = p.state[2];
