@@ -982,7 +982,7 @@ __host__ __device__    void poloidal_poincare_trace(particle_t& p, double* srang
 
             int dq = (int) ((int) floor((phase_current-theta)/(2*M_PI))) - ((int) floor((phase_last-theta)/(2*M_PI)));
             if (last_quotient != curr_quotient) { // checks if zeta1 - omega * t1 < zeta + 2kpi < zeta_2 - omega t_2
-                if(thetadot * dq < 0) continue;
+                if(thetadot * dq < 0 && dq == -1) continue;
                 double current_y1 = p.state[0], current_y2 = p.state[1];
                 double current_vpar = p.state[3];
                 double current_z = p.state[2];
