@@ -1006,8 +1006,8 @@ __host__ __device__    void poloidal_poincare_trace(particle_t& p, double* srang
                                 
                 // double x = (adjusted_hit - phase_last)/(phase_current - phase_last);
                 
-                // double y1 = last_y1 + x * (current_y1 - last_y1);
-                // double y2 = last_y2 + x * (current_y2 - last_y2);
+                double y1 = last_y1 + x * (current_y1 - last_y1);
+                double y2 = last_y2 + x * (current_y2 - last_y2);
                 // double s = sqrt(y1 * y1 + y2 * y2);
                 // double theta = atan2(y2, y1);
                 // double z = last_z + x * (current_z - last_z);
@@ -1017,7 +1017,7 @@ __host__ __device__    void poloidal_poincare_trace(particle_t& p, double* srang
                 
                 int base = ((idx * num_planes + curr_plane) * MAX_PUNCTURES + punctures) * 5;        
                 traj_buffer[base + 0] = s;
-                traj_buffer[base + 1] = theta + omega * tnow;
+                traj_buffer[base + 1] = atan2(y2, y1);
                 traj_buffer[base + 2] = z;
                 traj_buffer[base + 3] = vpar;
                 traj_buffer[base + 4] = tnow;    
