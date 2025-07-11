@@ -1016,11 +1016,11 @@ __host__ __device__    void poloidal_poincare_trace(particle_t& p, double* srang
 
                 
                 int base = ((idx * num_planes + curr_plane) * MAX_PUNCTURES + punctures) * 5;        
-                traj_buffer[base + 0] = s;
-                traj_buffer[base + 1] = atan2(y2, y1);
-                traj_buffer[base + 2] = z;
-                traj_buffer[base + 3] = vpar;
-                traj_buffer[base + 4] = tnow;    
+                traj_buffer[base + 0] = sqrt(current_y1 * current_y1 + current_y2 + current_y2);
+                traj_buffer[base + 1] = current_theta;
+                traj_buffer[base + 2] = current_z;
+                traj_buffer[base + 3] = current_vpar;
+                traj_buffer[base + 4] = p.t;    
 
                 punctures ++;
             }
