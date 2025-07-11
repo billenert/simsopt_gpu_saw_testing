@@ -985,6 +985,7 @@ __host__ __device__    void poloidal_poincare_trace(particle_t& p, double* srang
             if (last_quotient != curr_quotient) { // checks if zeta1 - omega * t1 < zeta + 2kpi < zeta_2 - omega t_2
                 if(xsidot * dq < 0) continue;
                 double current_y1 = p.state[0], current_y2 = p.state[1];
+                double current_s = sqrt(current_y1 * current_y1 + current_y2 * current_y2);
                 double current_vpar = p.state[3];
                 double current_z = p.state[2];
                 
@@ -996,12 +997,11 @@ __host__ __device__    void poloidal_poincare_trace(particle_t& p, double* srang
                 // root solve to find the y1, y2 that work for hitting the theta plane: y2 is y, y1 is x
 
                 double x = (adjusted_hit - phase_last)/(phase_current - phase_last);
-                double y1 = last_y1 + x * (current_y1 - last_y1);
-                double y2 = last_y2 + x * (current_y2 - last_y2);
-                double s = sqrt(y1 * y1 + y2 * y2);
+                double s = last_s + x * (current_s - last_s);
                 double z = last_z + x * (current_z - last_z);
                 double vpar = last_vpar + x * (current_vpar - last_vpar);
                 double tnow = last_tnow + x * (current_tnow - last_tnow);
+                double ret_theta = last_theta + x * (current_theta - last_theta);
 
                                 
                 // double x = (adjusted_hit - phase_last)/(phase_current - phase_last);
@@ -1016,11 +1016,11 @@ __host__ __device__    void poloidal_poincare_trace(particle_t& p, double* srang
 
                 
                 int base = ((idx * num_planes + curr_plane) * MAX_PUNCTURES + punctures) * 5;        
-                traj_buffer[base + 0] = sqrt(current_y1 * current_y1 + current_y2 * current_y2);
-                traj_buffer[base + 1] = current_theta;
-                traj_buffer[base + 2] = current_z;
-                traj_buffer[base + 3] = current_vpar;
-                traj_buffer[base + 4] = p.t;    
+                traj_buffer[base + 0] = s;
+                traj_buffer[base + 1] = ret_theta;
+                traj_buffer[base + 2] = z;
+                traj_buffer[base + 3] = vpar;
+                traj_buffer[base + 4] = tnow;    
 
                 punctures ++;
             }
