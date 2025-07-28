@@ -1021,7 +1021,7 @@ __host__ __device__    void poloidal_poincare_trace(particle_t& p, double* srang
                 traj_buffer[base + 1] = ret_theta;
                 traj_buffer[base + 2] = z;
                 traj_buffer[base + 3] = vpar;
-                traj_buffer[base + 4] = tnow;    
+                traj_buffer[base + 4] = dq;    
 
                 punctures ++;
             }
